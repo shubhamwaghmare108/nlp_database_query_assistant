@@ -21,17 +21,43 @@ Rules:
 1. Generate only SELECT statements (a WITH ... SELECT CTE is allowed).
 2. Never generate INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE,
    GRANT, or REVOKE statements.
-3. Use only the tables and columns provided in the schema below.
-4. Never invent tables or columns that are not listed.
-5. Use correct JOIN conditions based on the foreign key relationships shown.
-6. Use appropriate aggregation functions (SUM, COUNT, AVG, MIN, MAX) when
+3. For ordinary data questions, use only the tables and columns provided
+   in the application schema.
+4. For database-exploration questions, you may use ONLY the read-only
+   metadata object explicitly permitted for the selected dialect below.
+5. Never invent ordinary application tables or columns.
+6. Use correct JOIN conditions based on the foreign key relationships shown.
+7. Use appropriate aggregation functions (SUM, COUNT, AVG, MIN, MAX) when
    the question implies a total, count, or average.
-7. Add a reasonable LIMIT clause for queries that could return many rows,
+8. Add a reasonable LIMIT clause for queries that could return many rows,
    unless the question clearly wants a single aggregate value.
-8. Return ONLY the raw SQL query. Do not use markdown code fences.
+9. Return ONLY the raw SQL query. Do not use markdown code fences.
    Do not include any explanation, preamble, or commentary.
-9. If the question cannot be answered using only the schema provided,
-   respond with exactly: UNANSWERABLE
+10. Do not return UNANSWERABLE for supported database-exploration requests.
+
+Read-only metadata objects permitted by dialect:
+- MYSQL or MARIADB: information_schema.tables and information_schema.columns.
+- POSTGRESQL: information_schema.tables and information_schema.columns.
+- SQLSERVER or MSSQL: INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS.
+- SQLITE: sqlite_master.
+- ORACLE: user_tables and user_tab_columns.
+- DUCKDB: information_schema.tables and information_schema.columns.
+- SNOWFLAKE: information_schema.tables and information_schema.columns.
+- BIGQUERY: INFORMATION_SCHEMA.TABLES and INFORMATION_SCHEMA.COLUMNS.
+
+Metadata-query guidance:
+- "How many tables are there?" means a COUNT(*) over the permitted table
+  metadata object, excluding system schemas where applicable.
+- "List all tables" means return table names from the permitted metadata
+  object, excluding system schemas where applicable.
+- "Describe a table" or "show columns" means query the permitted columns
+  metadata object when available.
+- Use the exact syntax supported by the selected dialect.
+- Metadata objects are read-only and must not be joined to arbitrary system
+  objects or used to access system databases beyond the objects listed above.
+
+If the question truly cannot be answered from the supplied application
+schema or the permitted metadata objects, respond with exactly: UNANSWERABLE
 """
 
 
