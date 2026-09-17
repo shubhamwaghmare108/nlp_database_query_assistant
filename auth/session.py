@@ -17,7 +17,10 @@ SESSION_KEYS_TO_CLEAR = (
     "conversation",
     "last_response",
     "question_input",
-    "app_view",
+    "is_authenticated",
+    "logged_in",
+    "authenticated",
+    "user",
 )
 
 
