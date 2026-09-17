@@ -22,6 +22,7 @@ st.session_state.setdefault("conversation", [])
 st.session_state.setdefault("last_response", None)
 st.session_state.setdefault("configured_database_profile", None)
 st.session_state.setdefault("app_view", "Query assistant")
+st.session_state.setdefault("show_logout", True)
 
 _pending_view = st.session_state.pop("pending_app_view", None)
 if _pending_view in {"Query assistant", "Database configuration"}:
@@ -175,12 +176,12 @@ def render_sidebar() -> tuple[str, str | None]:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
 
-        # This application is already inside the authenticated workspace.
-        # Show logout consistently; clear_user_session safely handles missing keys.
-        if st.button("Logout", key="logout_button", use_container_width=True):
-            clear_user_session(st.session_state)
-            st.cache_data.clear()
-            st.rerun()
+        if st.session_state.get("show_logout", True):
+            if st.button("Logout", key="logout_button", use_container_width=True):
+                clear_user_session(st.session_state)
+                st.session_state["show_logout"] = False
+                st.cache_data.clear()
+                st.rerun()
 
         if view == "Database configuration":
             return view, None
