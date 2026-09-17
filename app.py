@@ -175,13 +175,12 @@ def render_sidebar() -> tuple[str, str | None]:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
 
-        # Render logout only for an authenticated session. The login flow should
-        # set either flag when credentials have been successfully verified.
-        if st.session_state.get("is_authenticated", False) or st.session_state.get("logged_in", False):
-            if st.button("Logout", key="logout_button", use_container_width=True):
-                clear_user_session(st.session_state)
-                st.cache_data.clear()
-                st.rerun()
+        # This application is already inside the authenticated workspace.
+        # Show logout consistently; clear_user_session safely handles missing keys.
+        if st.button("Logout", key="logout_button", use_container_width=True):
+            clear_user_session(st.session_state)
+            st.cache_data.clear()
+            st.rerun()
 
         if view == "Database configuration":
             return view, None
@@ -195,7 +194,10 @@ def render_sidebar() -> tuple[str, str | None]:
         profile_name = st.selectbox("Connection profile", list(profiles), key="database_profile")
         profile = profiles[profile_name]
         connected = test_connection(profile)
-        st.success(f"● Connected to `{profile.name or profile.dialect}`") if connected else st.error("● Not connected")
+        if connected:
+            st.success(f"● Connected to `{profile.name or profile.dialect}`")
+        else:
+            st.error("● Not connected")
         with st.expander("Schema"):
             if connected:
                 try:
