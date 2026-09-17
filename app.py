@@ -15,6 +15,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from auth.session import clear_user_session
 from config import DatabaseSettings, settings
 from database.connection import test_connection
 from database.schema import get_database_schema
@@ -165,6 +166,12 @@ def render_sidebar() -> tuple[str, str]:
             ["Query assistant", "Database configuration"],
             key="app_view",
         )
+
+        if st.button("Logout", key="logout_button", use_container_width=True):
+            clear_user_session(st.session_state)
+            st.cache_data.clear()
+            st.rerun()
+
         if view == "Database configuration":
             return view, ""
 
