@@ -158,11 +158,11 @@ class AppSettings:
 class Settings:
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     llm: LLMSettings = field(default_factory=LLMSettings)
-    app: AppSettings = field(default_factory=AppSettings)
+    app: AppSettings = field(default_factory=AppSettings
 
     @property
     def database_profiles(self) -> dict[str, DatabaseSettings]:
-        profiles = {"Default": self.database}
+        profiles: dict[str, DatabaseSettings] = {}
         for name in (item.strip() for item in os.getenv("DB_PROFILES", "").split(",")):
             if name:
                 profiles[name] = DatabaseSettings.from_env(f"DB_{name.upper()}_")
@@ -170,14 +170,8 @@ class Settings:
 
     @property
     def all_database_profiles(self) -> dict[str, DatabaseSettings]:
-        profiles = self.database_profiles
-        default = self.database
-        ports = {"MySQL": 3306, "MariaDB": 3306, "PostgreSQL": 5432, "SQLite": 0, "SQL Server": 1433, "Oracle": 1521, "DuckDB": 0, "Snowflake": 443, "BigQuery": 443}
-        dialects = {"MySQL": "mysql", "MariaDB": "mariadb", "PostgreSQL": "postgresql", "SQLite": "sqlite", "SQL Server": "mssql", "Oracle": "oracle", "DuckDB": "duckdb", "Snowflake": "snowflake", "BigQuery": "bigquery"}
-        for label, dialect in dialects.items():
-            if label not in profiles:
-                profiles[label] = DatabaseSettings(dialect=dialect, host=default.host, port=ports[label], name=default.name, user=default.user, password=default.password)
-        return profiles
+        """Return only explicitly configured profiles; never create implicit connections."""
+        return self.database_profiles
 
 
 settings = Settings()
