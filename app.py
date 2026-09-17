@@ -22,6 +22,13 @@ st.session_state.setdefault("last_response", None)
 st.session_state.setdefault("configured_database_profile", None)
 st.session_state.setdefault("app_view", "Query assistant")
 
+# Apply deferred navigation before the radio widget is instantiated.
+# Streamlit forbids modifying a widget-backed session-state key after
+# that widget has already been created during the current run.
+_pending_view = st.session_state.pop("pending_app_view", None)
+if _pending_view in {"Query assistant", "Database configuration"}:
+    st.session_state["app_view"] = _pending_view
+
 
 def _value(current, field: str, default=""):
     return getattr(current, field, default) if current is not None else default
@@ -154,7 +161,7 @@ def render_database_configuration() -> None:
             else: st.error("Connection failed. Check the selected RDBMS and connection details.")
     if save_clicked:
         st.session_state.configured_database_profile = profile
-        st.session_state.app_view = "Query assistant"
+        st.session_state["pending_app_view"] = "Query assistant"
         st.toast("Database configuration saved for this session.", icon="✅")
         st.rerun()
 
