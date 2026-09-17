@@ -6,12 +6,12 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from streamlit_js_eval import streamlit_js_eval
 
 from auth.session import clear_user_session
 from config import DatabaseSettings, settings
 from database.connection import test_connection
 from database.schema import get_database_schema
+from nlp.llm_client import LLMError, get_llm_client
 from services.query_service import QueryHistoryEntry, answer_question
 from visualization.charts import build_chart, suggest_chart_type
 
@@ -204,51 +204,27 @@ def render_sidebar() -> tuple[str, str | None]:
     return view, profile_name
 
 
-def _browser_dictation() -> str | None:
-    """Capture one spoken question using the browser's Web Speech API."""
-    if not st.button("🎙️ Start dictation", key="start_dictation"):
-        return None
-
-    speech_expression = r"""
-(async () => {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    return {error: "Speech recognition is not supported in this browser. Use Chrome or Edge."};
-  }
-  return await new Promise((resolve) => {
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-IN";
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.onresult = (event) => {
-      const text = event.results?.[0]?.[0]?.transcript || "";
-      resolve({text});
-    };
-    recognition.onerror = (event) => resolve({error: event.error || "Speech recognition failed."});
-    recognition.onnomatch = () => resolve({error: "No speech was recognized. Please try again."});
-    try {
-      recognition.start();
-    } catch (error) {
-      resolve({error: String(error)});
-    }
-  });
-})()
-"""
-    result = streamlit_js_eval(js_expressions=speech_expression, key="browser_dictation_eval")
-    if not isinstance(result, dict):
-        return None
-    if result.get("error"):
-        st.warning(result["error"])
-        return None
-    text = str(result.get("text", "")).strip()
-    return text or None
-
-
 def render_query_form() -> str | None:
-    dictated_text = _browser_dictation()
-    if dictated_text:
-        st.session_state["question_input"] = dictated_text
-        st.success("Speech recognized. You can edit the question before submitting.")
+    """Render a native Streamlit microphone recorder and the query form."""
+    audio = st.audio_input("🎙️ Dictate your database question", key="dictation_audio")
+    if audio is not None:
+        audio_bytes = audio.getvalue()
+        if audio_bytes:
+            audio_signature = hash(audio_bytes)
+            if st.session_state.get("transcribed_audio_signature") != audio_signature:
+                with st.spinner("Transcribing your question..."):
+                    try:
+                        transcript = get_llm_client().transcribe_audio(
+                            audio_bytes,
+                            mime_type=getattr(audio, "type", None) or "audio/wav",
+                        )
+                        st.session_state["question_input"] = transcript
+                        st.session_state["transcribed_audio_signature"] = audio_signature
+                        st.success("Speech recognized. You can edit the question before submitting.")
+                    except LLMError as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        st.error(f"Could not transcribe audio: {exc}")
 
     with st.form("query_form", clear_on_submit=False):
         question = st.text_input(
