@@ -1,13 +1,9 @@
 """
-database/connection.py
------------------------
-Owns the SQLAlchemy Engine and connection pooling. This is the only
-module that should construct an Engine — everything else (schema
-extraction, query execution) borrows a connection from here.
+Database connection management for the multi-RDBMS query platform.
 
-The engine is built from config.settings, so switching from MySQL to
-PostgreSQL later only requires changing DB_DIALECT and the driver
-resolution in config.DatabaseSettings.sqlalchemy_url — no changes here.
+This module is the single place that creates SQLAlchemy engines. The UI
+can therefore switch between database profiles without changing query
+execution or schema-discovery code.
 """
 
 from __future__ import annotations
@@ -25,54 +21,63 @@ logger = get_logger(__name__)
 
 
 class DatabaseConnectionError(Exception):
-    """Raised when the application cannot establish a database connection."""
+    """Raised when an engine cannot be created for a database profile."""
 
 
 @lru_cache(maxsize=16)
 def get_engine(profile: DatabaseSettings | None = None) -> Engine:
-    """
-    Return a process-wide singleton SQLAlchemy Engine with connection
-    pooling. Cached so repeated calls (e.g. from Streamlit re-runs)
-    reuse the same pool instead of opening new ones.
-    """
+    """Create or reuse an engine for the selected database profile."""
+    db_settings = profile or settings.database
+
     try:
-        db_settings = profile or settings.database
-        if not getattr(db_settings, "name", "") and db_settings.dialect != "sqlite":
-            raise ValueError("Database settings are incomplete: DB_NAME is required.")
-        url = db_settings.sqlalchemy_url
-        engine = create_engine(
-            url,
-            pool_pre_ping=True,   # detect stale connections
-            pool_recycle=1800,    # recycle connections every 30 min
-            pool_size=5,
-            max_overflow=5,
-            future=True,
-        )
+        if not getattr(db_settings, "name", "") and db_settings.dialect not in {
+            "sqlite",
+            "duckdb",
+            "bigquery",
+        }:
+            raise ValueError("Database name is required for this RDBMS.")
+
+        engine_kwargs = {
+            "pool_pre_ping": True,
+            "future": True,
+        }
+
+        # File databases do not use the same pool configuration as server
+        # databases. Avoid passing pool_size/max_overflow to their dialects.
+        if db_settings.dialect not in {"sqlite", "duckdb", "bigquery"}:
+            engine_kwargs.update(pool_recycle=1800, pool_size=5, max_overflow=5)
+
+        if db_settings.dialect == "sqlite":
+            engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+        engine = create_engine(db_settings.sqlalchemy_url, **engine_kwargs)
         logger.info(
-            "Database engine created for host=%s db=%s dialect=%s",
+            "Database engine created: dialect=%s host=%s database=%s",
+            db_settings.dialect,
             db_settings.host,
             db_settings.name,
-            db_settings.dialect,
         )
         return engine
-    except (SQLAlchemyError, ValueError) as exc:
-        logger.error("Failed to create database engine: %s", exc)
+    except Exception as exc:
+        logger.exception("Failed to create database engine for dialect=%s", db_settings.dialect)
         raise DatabaseConnectionError(str(exc)) from exc
 
 
 def test_connection(profile: DatabaseSettings | None = None) -> bool:
-    """Ping the database. Returns True if reachable, False otherwise."""
+    """Return whether the selected profile can execute a lightweight query."""
     try:
         engine = get_engine(profile)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        logger.info("Database connection test succeeded")
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        logger.info("Database connection test succeeded for %s", engine.dialect.name)
         return True
-    except SQLAlchemyError as exc:
-        logger.error("Database connection test failed: %s", exc)
+    except Exception as exc:
+        logger.warning("Database connection test failed: %s", exc)
         return False
 
 
 def dispose_engine() -> None:
-    """Dispose of the engine's connection pool (used in tests/shutdown)."""
+    """Dispose all cached engines, useful on logout and during tests."""
+    for engine in list(get_engine.cache_info() and []):
+        engine.dispose()
     get_engine.cache_clear()
