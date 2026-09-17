@@ -1,12 +1,7 @@
 """
 config.py
 ---------
-Central configuration module. Loads all settings from environment
-variables (via a .env file in local development) and exposes them
-as a single, typed Settings object.
-
-No other module should call os.getenv() directly — everything goes
-through this module so configuration stays in one place.
+Central configuration module for application and database settings.
 """
 
 from __future__ import annotations
@@ -19,14 +14,9 @@ from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
-# Load the project-level .env explicitly so the app still finds its config
-# when started from a different working directory (e.g. a service manager).
 _project_root = Path(__file__).resolve().parent
 _env_path = _project_root / ".env"
-if _env_path.exists():
-    load_dotenv(dotenv_path=_env_path)
-else:
-    load_dotenv()
+load_dotenv(dotenv_path=_env_path if _env_path.exists() else None)
 
 
 def _get_bool(name: str, default: bool = False) -> bool:
@@ -38,7 +28,7 @@ def _get_bool(name: str, default: bool = False) -> bool:
 
 def _get_int(name: str, default: int) -> int:
     value = os.getenv(name)
-    if value is None or value == "":
+    if value in {None, ""}:
         return default
     try:
         return int(value)
@@ -54,17 +44,23 @@ class DatabaseSettings:
     name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))
     user: str = field(default_factory=lambda: os.getenv("DB_USER", ""))
     password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
+    ssl_ca: str = field(default_factory=lambda: os.getenv("DB_SSL_CA", ""))
+    ssl_cert: str = field(default_factory=lambda: os.getenv("DB_SSL_CERT", ""))
+    ssl_key: str = field(default_factory=lambda: os.getenv("DB_SSL_KEY", ""))
+    ssl_mode: str = field(default_factory=lambda: os.getenv("DB_SSL_MODE", ""))
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "dialect", (self.dialect or "mysql").strip().lower())
-        object.__setattr__(self, "host", (self.host or "localhost").strip())
-        object.__setattr__(self, "name", (self.name or "").strip())
-        object.__setattr__(self, "user", (self.user or "").strip())
-        object.__setattr__(self, "password", (self.password or "").strip())
+        for field_name in ("dialect", "host", "name", "user", "password", "ssl_ca", "ssl_cert", "ssl_key", "ssl_mode"):
+            value = getattr(self, field_name)
+            object.__setattr__(self, field_name, (value or "").strip())
+        if not self.host:
+            object.__setattr__(self, "host", "localhost")
+        if not self.dialect:
+            object.__setattr__(self, "dialect", "mysql")
+        object.__setattr__(self, "dialect", self.dialect.lower())
 
     @classmethod
     def from_env(cls, prefix: str = "DB_") -> "DatabaseSettings":
-        """Build a connection profile from variables using the given prefix."""
         return cls(
             dialect=os.getenv(f"{prefix}DIALECT", "mysql"),
             host=os.getenv(f"{prefix}HOST", "localhost"),
@@ -72,79 +68,70 @@ class DatabaseSettings:
             name=os.getenv(f"{prefix}NAME", ""),
             user=os.getenv(f"{prefix}USER", ""),
             password=os.getenv(f"{prefix}PASSWORD", ""),
+            ssl_ca=os.getenv(f"{prefix}SSL_CA", ""),
+            ssl_cert=os.getenv(f"{prefix}SSL_CERT", ""),
+            ssl_key=os.getenv(f"{prefix}SSL_KEY", ""),
+            ssl_mode=os.getenv(f"{prefix}SSL_MODE", ""),
         )
 
     @property
     def sqlalchemy_url(self) -> str:
-        """
-        Build a SQLAlchemy connection URL. Supports MySQL, PostgreSQL, and
-        SQLite, and URL-encodes credentials so special characters do not
-        break the DSN.
-        """
-        dialect = self.dialect.lower()
+        dialect = self.dialect
         if dialect in {"mysql", "mariadb"}:
+            if not self.name:
+                raise ValueError("DB_NAME is required for MySQL/MariaDB connections.")
             driver = "mysql+pymysql"
-            if not self.name:
-                raise ValueError("DB_NAME is required for MySQL/PostgreSQL connections.")
-            auth = (
-                f"{quote_plus(self.user)}:{quote_plus(self.password)}"
-                if self.user or self.password
-                else ""
-            )
-            credentials = f"{auth}@" if auth else ""
-            return (
-                f"{driver}://{credentials}{self.host}:{self.port}/{self.name}"
-            )
+            auth = f"{quote_plus(self.user)}:{quote_plus(self.password)}@" if (self.user or self.password) else ""
+            params = []
+            if self.ssl_ca:
+                params.append(f"ssl_ca={quote_plus(self.ssl_ca)}")
+            if self.ssl_cert:
+                params.append(f"ssl_cert={quote_plus(self.ssl_cert)}")
+            if self.ssl_key:
+                params.append(f"ssl_key={quote_plus(self.ssl_key)}")
+            if self.ssl_mode:
+                params.append(f"ssl_mode={quote_plus(self.ssl_mode)}")
+            query = f"?{'&'.join(params)}" if params else ""
+            return f"{driver}://{auth}{self.host}:{self.port}/{self.name}{query}"
+
         if dialect in {"postgres", "postgresql"}:
-            driver = "postgresql+psycopg2"
             if not self.name:
-                raise ValueError("DB_NAME is required for MySQL/PostgreSQL connections.")
-            auth = (
-                f"{quote_plus(self.user)}:{quote_plus(self.password)}"
-                if self.user or self.password
-                else ""
-            )
-            credentials = f"{auth}@" if auth else ""
-            return (
-                f"{driver}://{credentials}{self.host}:{self.port}/{self.name}"
-            )
+                raise ValueError("DB_NAME is required for PostgreSQL connections.")
+            auth = f"{quote_plus(self.user)}:{quote_plus(self.password)}@" if (self.user or self.password) else ""
+            params = []
+            if self.ssl_mode:
+                params.append(f"sslmode={quote_plus(self.ssl_mode)}")
+            if self.ssl_ca:
+                params.append(f"sslrootcert={quote_plus(self.ssl_ca)}")
+            if self.ssl_cert:
+                params.append(f"sslcert={quote_plus(self.ssl_cert)}")
+            if self.ssl_key:
+                params.append(f"sslkey={quote_plus(self.ssl_key)}")
+            query = f"?{'&'.join(params)}" if params else ""
+            return f"postgresql+psycopg2://{auth}{self.host}:{self.port}/{self.name}{query}"
+
         if dialect in {"mssql", "sqlserver"}:
-            driver = "mssql+pyodbc"
             if not self.name:
                 raise ValueError("DB_NAME is required for SQL Server connections.")
-            auth = (
-                f"{quote_plus(self.user)}:{quote_plus(self.password)}@"
-                if self.user or self.password
-                else ""
-            )
-            return (
-                f"{driver}://{auth}{self.host}:{self.port}/{self.name}"
-                "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
-            )
+            auth = f"{quote_plus(self.user)}:{quote_plus(self.password)}@" if (self.user or self.password) else ""
+            return f"mssql+pyodbc://{auth}{self.host}:{self.port}/{self.name}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+
         if dialect == "oracle":
-            driver = "oracle+oracledb"
             if not self.name:
                 raise ValueError("DB_NAME is required for Oracle connections.")
-            return (
-                f"{driver}://{quote_plus(self.user)}:{quote_plus(self.password)}@"
-                f"{self.host}:{self.port}/?service_name={quote_plus(self.name)}"
-            )
+            return f"oracle+oracledb://{quote_plus(self.user)}:{quote_plus(self.password)}@{self.host}:{self.port}/?service_name={quote_plus(self.name)}"
         if dialect == "duckdb":
             return f"duckdb:///{Path(self.name or ':memory:').expanduser()}"
         if dialect == "snowflake":
             if not self.name:
                 raise ValueError("DB_NAME is required for Snowflake connections.")
-            return (
-                f"snowflake://{quote_plus(self.user)}:{quote_plus(self.password)}"
-                f"@{self.host}/{self.name}"
-            )
+            return f"snowflake://{quote_plus(self.user)}:{quote_plus(self.password)}@{self.host}/{self.name}"
         if dialect in {"bigquery", "googlebigquery"}:
             return f"bigquery://{self.name}"
         if dialect == "sqlite":
             if self.name in {"", ":memory:"}:
                 return "sqlite:///:memory:"
-            db_path = str(Path(self.name).expanduser())
-            return f"sqlite:///{db_path}"
+            return f"sqlite:///{Path(self.name).expanduser()}"
         raise ValueError(f"Unsupported DB_DIALECT: {self.dialect}")
 
 
@@ -152,15 +139,9 @@ class DatabaseSettings:
 class LLMSettings:
     provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini"))
     gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    gemini_model: str = field(
-        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-    )
-    openrouter_api_key: str = field(
-        default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "")
-    )
-    openrouter_model: str = field(
-        default_factory=lambda: os.getenv("OPENROUTER_MODEL", "")
-    )
+    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))
+    openrouter_api_key: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
+    openrouter_model: str = field(default_factory=lambda: os.getenv("OPENROUTER_MODEL", ""))
 
 
 @dataclass(frozen=True)
@@ -168,15 +149,8 @@ class AppSettings:
     env: str = field(default_factory=lambda: os.getenv("APP_ENV", "development"))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     max_result_rows: int = field(default_factory=lambda: _get_int("MAX_RESULT_ROWS", 1000))
-    query_timeout_seconds: int = field(
-        default_factory=lambda: _get_int("QUERY_TIMEOUT_SECONDS", 15)
-    )
-    max_sql_correction_attempts: int = field(
-        default_factory=lambda: _get_int("MAX_SQL_CORRECTION_ATTEMPTS", 2)
-    )
-    # Tables the app is explicitly allowed to expose to the LLM / execute
-    # queries against. Empty list = discover dynamically from schema and
-    # allow all non-system tables.
+    query_timeout_seconds: int = field(default_factory=lambda: _get_int("QUERY_TIMEOUT_SECONDS", 15))
+    max_sql_correction_attempts: int = field(default_factory=lambda: _get_int("MAX_SQL_CORRECTION_ATTEMPTS", 2))
     allowed_tables: List[str] = field(default_factory=list)
 
 
@@ -188,52 +162,22 @@ class Settings:
 
     @property
     def database_profiles(self) -> dict[str, DatabaseSettings]:
-        """Return the default profile plus any profiles listed in DB_PROFILES."""
         profiles = {"Default": self.database}
         names = [name.strip() for name in os.getenv("DB_PROFILES", "").split(",")]
         for name in names:
             if name:
-                prefix = f"DB_{name.upper()}_"
-                profiles[name] = DatabaseSettings.from_env(prefix)
+                profiles[name] = DatabaseSettings.from_env(f"DB_{name.upper()}_")
         return profiles
 
     @property
     def all_database_profiles(self) -> dict[str, DatabaseSettings]:
-        """Return configured profiles plus built-in dialect choices."""
         profiles = self.database_profiles
         default = self.database
-        ports = {
-            "MySQL": 3306,
-            "MariaDB": 3306,
-            "PostgreSQL": 5432,
-            "SQLite": 0,
-            "SQL Server": 1433,
-            "Oracle": 1521,
-            "DuckDB": 0,
-            "Snowflake": 443,
-            "BigQuery": 443,
-        }
-        dialects = {
-            "MySQL": "mysql",
-            "MariaDB": "mariadb",
-            "PostgreSQL": "postgresql",
-            "SQLite": "sqlite",
-            "SQL Server": "mssql",
-            "Oracle": "oracle",
-            "DuckDB": "duckdb",
-            "Snowflake": "snowflake",
-            "BigQuery": "bigquery",
-        }
+        ports = {"MySQL": 3306, "MariaDB": 3306, "PostgreSQL": 5432, "SQLite": 0, "SQL Server": 1433, "Oracle": 1521, "DuckDB": 0, "Snowflake": 443, "BigQuery": 443}
+        dialects = {"MySQL": "mysql", "MariaDB": "mariadb", "PostgreSQL": "postgresql", "SQLite": "sqlite", "SQL Server": "mssql", "Oracle": "oracle", "DuckDB": "duckdb", "Snowflake": "snowflake", "BigQuery": "bigquery"}
         for name, dialect in dialects.items():
             if name not in profiles:
-                profiles[name] = DatabaseSettings(
-                    dialect=dialect,
-                    host=default.host,
-                    port=ports[name],
-                    name=default.name,
-                    user=default.user,
-                    password=default.password,
-                )
+                profiles[name] = DatabaseSettings(dialect=dialect, host=default.host, port=ports[name], name=default.name, user=default.user, password=default.password, ssl_ca=default.ssl_ca, ssl_cert=default.ssl_cert, ssl_key=default.ssl_key, ssl_mode=default.ssl_mode)
         return profiles
 
 
