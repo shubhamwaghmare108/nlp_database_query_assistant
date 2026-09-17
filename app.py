@@ -166,7 +166,9 @@ def render_database_configuration() -> None:
                 st.error("Connection failed. Check the selected RDBMS and connection details.")
     if save_clicked:
         st.session_state.configured_database_profile = profile
+        st.session_state["pending_app_view"] = "Query assistant"
         st.success("Database configuration saved for this session.")
+        st.rerun()
 
 
 def render_sidebar() -> tuple[str, str | None]:
