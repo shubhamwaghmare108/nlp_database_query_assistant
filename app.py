@@ -174,10 +174,15 @@ def render_sidebar() -> tuple[str, str | None]:
     with st.sidebar:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
-        if st.button("Logout", key="logout_button", use_container_width=True):
-            clear_user_session(st.session_state)
-            st.cache_data.clear()
-            st.rerun()
+
+        # Render logout only for an authenticated session. The login flow should
+        # set either flag when credentials have been successfully verified.
+        if st.session_state.get("is_authenticated", False) or st.session_state.get("logged_in", False):
+            if st.button("Logout", key="logout_button", use_container_width=True):
+                clear_user_session(st.session_state)
+                st.cache_data.clear()
+                st.rerun()
+
         if view == "Database configuration":
             return view, None
 
