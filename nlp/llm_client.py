@@ -1,11 +1,7 @@
 """
 nlp/llm_client.py
 ------------------
-Provider-agnostic LLM client. The rest of the application talks to
-`get_llm_client()` and calls `.generate(prompt)` — it never imports
-google.genai or any provider SDK directly. This makes it possible to
-add a second provider (e.g. OpenRouter) later by adding a new class
-here and switching LLM_PROVIDER in .env, with zero changes elsewhere.
+Provider-agnostic LLM client.
 """
 
 from __future__ import annotations
@@ -26,8 +22,10 @@ class LLMError(Exception):
 class BaseLLMClient(ABC):
     @abstractmethod
     def generate(self, prompt: str, system_instruction: str = "") -> str:
-        """Return the raw text response from the model."""
         raise NotImplementedError
+
+    def transcribe_audio(self, audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
+        raise LLMError(f"Audio transcription is not supported by {self.__class__.__name__}.")
 
 
 class GeminiClient(BaseLLMClient):
@@ -36,12 +34,11 @@ class GeminiClient(BaseLLMClient):
             raise LLMError("GEMINI_API_KEY is not configured.")
         self._model_name = model
         try:
-            from google import genai  # imported lazily so the whole app
+            from google import genai
             self._client = genai.Client(api_key=api_key)
         except ImportError as exc:
             raise LLMError(
-                "google-genai package is not installed. "
-                "Run: pip install google-genai"
+                "google-genai package is not installed. Run: pip install google-genai"
             ) from exc
 
     def generate(self, prompt: str, system_instruction: str = "") -> str:
@@ -61,18 +58,31 @@ class GeminiClient(BaseLLMClient):
             if not text:
                 raise LLMError("The model returned an empty response.")
             return text
-        except Exception as exc:  # noqa: BLE001 - normalize provider errors
+        except Exception as exc:
             logger.error("Gemini generation failed: %s", exc)
             raise LLMError(f"LLM request failed: {exc}") from exc
 
+    def transcribe_audio(self, audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
+        try:
+            from google.genai import types
+
+            response = self._client.models.generate_content(
+                model=self._model_name,
+                contents=[
+                    types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                    "Transcribe the spoken audio exactly. Return only the transcript, with no commentary.",
+                ],
+            )
+            text = (response.text or "").strip()
+            if not text:
+                raise LLMError("No speech was detected in the recording.")
+            return text
+        except Exception as exc:
+            logger.error("Gemini audio transcription failed: %s", exc)
+            raise LLMError(f"Audio transcription failed: {exc}") from exc
+
 
 class OpenRouterClient(BaseLLMClient):
-    """
-    Placeholder secondary provider. Implemented against OpenRouter's
-    OpenAI-compatible chat completions endpoint so it can be dropped in
-    without changing prompt_builder or sql_generator.
-    """
-
     def __init__(self, api_key: str, model: str):
         if not api_key:
             raise LLMError("OPENROUTER_API_KEY is not configured.")
@@ -99,19 +109,19 @@ class OpenRouterClient(BaseLLMClient):
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"].strip()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("OpenRouter generation failed: %s", exc)
             raise LLMError(f"LLM request failed: {exc}") from exc
 
 
 @lru_cache(maxsize=1)
 def get_llm_client() -> BaseLLMClient:
-    """Factory that returns the configured provider's client (singleton)."""
     provider = settings.llm.provider.lower()
 
     if provider == "gemini":
         return GeminiClient(
-            api_key=settings.llm.gemini_api_key, model=settings.llm.gemini_model
+            api_key=settings.llm.gemini_api_key,
+            model=settings.llm.gemini_model,
         )
     if provider == "openrouter":
         return OpenRouterClient(
