@@ -60,6 +60,34 @@ def _allowed_table_set(schema: DatabaseSchema) -> set[str]:
     return {t.lower() for t in schema.table_names()}
 
 
+def _is_table_count_question(question: str) -> bool:
+    """Return True for simple questions asking how many tables exist."""
+    normalized = " ".join(question.lower().replace("?", "").split())
+    phrases = (
+        "how many tables",
+        "number of tables",
+        "count of tables",
+        "total tables",
+        "how many database tables",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
+def _table_count_response(question: str, schema: DatabaseSchema) -> QueryResponse:
+    """Answer schema-level table-count questions without involving the LLM."""
+    table_names = list(schema.table_names())
+    count = len(table_names)
+    dataframe = pd.DataFrame({"table_count": [count]})
+    return QueryResponse(
+        success=True,
+        question=question,
+        sql="-- Answered from discovered database schema: table count",
+        dataframe=dataframe,
+        row_count=1,
+        explanation=f"The connected database contains {count} table(s).",
+    )
+
+
 def answer_question(
     user_question: str,
     conversation_history: Optional[List[str]] = None,
@@ -93,6 +121,9 @@ def answer_question(
             success=False, question=user_question,
             error_message="Unable to connect to the database. Please check the database configuration.",
         )
+
+    if _is_table_count_question(user_question):
+        return _table_count_response(user_question, schema)
 
     allowed_tables = _allowed_table_set(schema)
 
@@ -147,11 +178,9 @@ def answer_question(
                 last_error = str(exc)
                 logger.warning("SQL execution failed (attempt %d): %s", attempt, last_error)
 
-        # Ran out of attempts?
         if attempt >= max_attempts:
             break
 
-        # Ask the LLM to correct the query and try again.
         try:
             sql = correct_sql(
                 schema=schema,
