@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
 
+from config import DatabaseSettings
 from database.connection import get_engine
 from utils.logging_config import get_logger
 
@@ -89,13 +90,16 @@ class DatabaseSchema:
         return "\n".join(lines)
 
 
-def get_database_schema(engine: Optional[Engine] = None) -> DatabaseSchema:
+def get_database_schema(
+    engine: Optional[Engine] = None,
+    profile: Optional[DatabaseSettings] = None,
+) -> DatabaseSchema:
     """
     Inspect the live database and build a DatabaseSchema object.
     This should be cached by the caller (e.g. Streamlit's st.cache_data)
     since schema rarely changes within a session.
     """
-    engine = engine or get_engine()
+    engine = engine or get_engine(profile)
     inspector = inspect(engine)
 
     db_name = engine.url.database or "unknown"

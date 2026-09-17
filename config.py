@@ -62,6 +62,18 @@ class DatabaseSettings:
         object.__setattr__(self, "user", (self.user or "").strip())
         object.__setattr__(self, "password", (self.password or "").strip())
 
+    @classmethod
+    def from_env(cls, prefix: str = "DB_") -> "DatabaseSettings":
+        """Build a connection profile from variables using the given prefix."""
+        return cls(
+            dialect=os.getenv(f"{prefix}DIALECT", "mysql"),
+            host=os.getenv(f"{prefix}HOST", "localhost"),
+            port=_get_int(f"{prefix}PORT", 3306),
+            name=os.getenv(f"{prefix}NAME", ""),
+            user=os.getenv(f"{prefix}USER", ""),
+            password=os.getenv(f"{prefix}PASSWORD", ""),
+        )
+
     @property
     def sqlalchemy_url(self) -> str:
         """
@@ -96,6 +108,38 @@ class DatabaseSettings:
             return (
                 f"{driver}://{credentials}{self.host}:{self.port}/{self.name}"
             )
+        if dialect in {"mssql", "sqlserver"}:
+            driver = "mssql+pyodbc"
+            if not self.name:
+                raise ValueError("DB_NAME is required for SQL Server connections.")
+            auth = (
+                f"{quote_plus(self.user)}:{quote_plus(self.password)}@"
+                if self.user or self.password
+                else ""
+            )
+            return (
+                f"{driver}://{auth}{self.host}:{self.port}/{self.name}"
+                "?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+            )
+        if dialect == "oracle":
+            driver = "oracle+oracledb"
+            if not self.name:
+                raise ValueError("DB_NAME is required for Oracle connections.")
+            return (
+                f"{driver}://{quote_plus(self.user)}:{quote_plus(self.password)}@"
+                f"{self.host}:{self.port}/?service_name={quote_plus(self.name)}"
+            )
+        if dialect == "duckdb":
+            return f"duckdb:///{Path(self.name or ':memory:').expanduser()}"
+        if dialect == "snowflake":
+            if not self.name:
+                raise ValueError("DB_NAME is required for Snowflake connections.")
+            return (
+                f"snowflake://{quote_plus(self.user)}:{quote_plus(self.password)}"
+                f"@{self.host}/{self.name}"
+            )
+        if dialect in {"bigquery", "googlebigquery"}:
+            return f"bigquery://{self.name}"
         if dialect == "sqlite":
             if self.name in {"", ":memory:"}:
                 return "sqlite:///:memory:"
@@ -141,6 +185,56 @@ class Settings:
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     llm: LLMSettings = field(default_factory=LLMSettings)
     app: AppSettings = field(default_factory=AppSettings)
+
+    @property
+    def database_profiles(self) -> dict[str, DatabaseSettings]:
+        """Return the default profile plus any profiles listed in DB_PROFILES."""
+        profiles = {"Default": self.database}
+        names = [name.strip() for name in os.getenv("DB_PROFILES", "").split(",")]
+        for name in names:
+            if name:
+                prefix = f"DB_{name.upper()}_"
+                profiles[name] = DatabaseSettings.from_env(prefix)
+        return profiles
+
+    @property
+    def all_database_profiles(self) -> dict[str, DatabaseSettings]:
+        """Return configured profiles plus built-in dialect choices."""
+        profiles = self.database_profiles
+        default = self.database
+        ports = {
+            "MySQL": 3306,
+            "MariaDB": 3306,
+            "PostgreSQL": 5432,
+            "SQLite": 0,
+            "SQL Server": 1433,
+            "Oracle": 1521,
+            "DuckDB": 0,
+            "Snowflake": 443,
+            "BigQuery": 443,
+        }
+        dialects = {
+            "MySQL": "mysql",
+            "MariaDB": "mariadb",
+            "PostgreSQL": "postgresql",
+            "SQLite": "sqlite",
+            "SQL Server": "mssql",
+            "Oracle": "oracle",
+            "DuckDB": "duckdb",
+            "Snowflake": "snowflake",
+            "BigQuery": "bigquery",
+        }
+        for name, dialect in dialects.items():
+            if name not in profiles:
+                profiles[name] = DatabaseSettings(
+                    dialect=dialect,
+                    host=default.host,
+                    port=ports[name],
+                    name=default.name,
+                    user=default.user,
+                    password=default.password,
+                )
+        return profiles
 
 
 settings = Settings()

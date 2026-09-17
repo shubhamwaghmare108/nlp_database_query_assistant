@@ -18,7 +18,7 @@ from typing import List, Optional
 
 import pandas as pd
 
-from config import settings
+from config import DatabaseSettings, settings
 from database.query_executor import QueryExecutionError, execute_select_query
 from database.schema import DatabaseSchema, get_database_schema
 from nlp.llm_client import LLMError, get_llm_client
@@ -64,6 +64,7 @@ def answer_question(
     user_question: str,
     conversation_history: Optional[List[str]] = None,
     dialect: str = "mysql",
+    database_profile: Optional[DatabaseSettings] = None,
     generate_explanation: bool = True,
 ) -> QueryResponse:
     """
@@ -81,7 +82,11 @@ def answer_question(
         )
 
     try:
-        schema = get_database_schema()
+        schema = (
+            get_database_schema()
+            if database_profile is None
+            else get_database_schema(profile=database_profile)
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("Schema retrieval failed: %s", exc)
         return QueryResponse(
@@ -112,17 +117,26 @@ def answer_question(
             last_error = "; ".join(validation.errors)
             logger.warning("SQL failed validation (attempt %d): %s", attempt, last_error)
         else:
+            sanitized_sql = validation.sanitized_sql
+            if sanitized_sql is None:
+                last_error = "SQL validation returned no executable query."
+                break
             try:
-                exec_result = execute_select_query(validation.sanitized_sql)
+                if database_profile is None:
+                    exec_result = execute_select_query(sanitized_sql)
+                else:
+                    exec_result = execute_select_query(
+                        sanitized_sql, profile=database_profile
+                    )
                 explanation = None
                 if generate_explanation and not exec_result.dataframe.empty:
                     explanation = _generate_explanation(
-                        user_question, validation.sanitized_sql, exec_result.dataframe, exec_result.row_count
+                        user_question, sanitized_sql, exec_result.dataframe, exec_result.row_count
                     )
                 return QueryResponse(
                     success=True,
                     question=user_question,
-                    sql=validation.sanitized_sql,
+                    sql=sanitized_sql,
                     dataframe=exec_result.dataframe,
                     row_count=exec_result.row_count,
                     truncated=exec_result.truncated,

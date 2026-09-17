@@ -1,9 +1,8 @@
 # Environment
-.env
 .venv/
 venv/
 env/
-
+sql_query/
 # Python
 __pycache__/
 *.py[cod]
@@ -17,6 +16,7 @@ logs/*.log
 
 # Streamlit
 .streamlit/secrets.toml
+.env
 
 # OS
 .DS_Store

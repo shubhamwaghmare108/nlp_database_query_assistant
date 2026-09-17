@@ -1,6 +1,6 @@
 # NLP Database Query Assistant
 
-Ask a MySQL database questions in plain English and get back the
+Ask supported SQL databases questions in plain English and get back the
 generated SQL, a results table, an automatic chart, and a
 plain-language explanation — no SQL required.
 
@@ -15,7 +15,8 @@ plain-language explanation — no SQL required.
 - Dynamic schema discovery — nothing about your tables is hard-coded
 - Multi-layer SQL security validator (statement type, keyword deny-list,
   table allow-list, forced `LIMIT`) before anything touches the database
-- Read-only execution via a dedicated MySQL user and connection pooling
+- Read-only execution via a dedicated database user and connection pooling
+- Multiple database profiles selectable from the sidebar
 - Automatic Plotly chart selection (bar / line / scatter / pie / table),
   with manual override
 - Optional AI-generated plain-language explanation of the result
@@ -48,8 +49,8 @@ first passing through the validator.
 | Layer          | Technology                     |
 |----------------|---------------------------------|
 | Frontend       | Streamlit                       |
-| Backend        | Python, SQLAlchemy, PyMySQL     |
-| Database       | MySQL (PostgreSQL-ready design) |
+| Backend        | Python, SQLAlchemy              |
+| Database       | MySQL, PostgreSQL, SQLite, SQL Server, Oracle, DuckDB, Snowflake, BigQuery |
 | NLP / LLM      | Google Gemini (`google-genai`)  |
 | Data           | Pandas                          |
 | Visualization  | Plotly                          |
@@ -123,6 +124,29 @@ cp .env.example .env
 Fill in `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `GEMINI_API_KEY`
 (get a free-tier key at https://aistudio.google.com/apikey). `.env` is
 already in `.gitignore` — never commit it.
+
+The base `DB_*` variables create the `Default` profile. To configure
+additional databases, list profile names in `DB_PROFILES` and add variables
+with the uppercase profile name in the prefix:
+
+```bash
+DB_PROFILES=warehouse,analytics
+
+DB_WAREHOUSE_DIALECT=postgresql
+DB_WAREHOUSE_HOST=warehouse.example.com
+DB_WAREHOUSE_PORT=5432
+DB_WAREHOUSE_NAME=sales
+DB_WAREHOUSE_USER=readonly
+DB_WAREHOUSE_PASSWORD=strong_password
+
+DB_ANALYTICS_DIALECT=duckdb
+DB_ANALYTICS_NAME=data/analytics.duckdb
+```
+
+Supported dialects are `mysql`, `mariadb`, `postgresql`, `sqlite`, `mssql`,
+`oracle`, `duckdb`, `snowflake`, and `bigquery`. Some backends also require
+an installed native client or ODBC driver; the Python drivers are listed in
+`requirements.txt`.
 
 ## 8. Running Locally
 
@@ -202,8 +226,6 @@ Run it under `systemd`, `tmux`, or `pm2` for persistence in production.
 
 ## 13. Future Enhancements
 
-- PostgreSQL support (the connection layer is already designed for it —
-  see `config.DatabaseSettings.sqlalchemy_url`)
 - OpenRouter as a second LLM provider (`nlp/llm_client.py` already has
   a stub `OpenRouterClient`)
 - Persistent (database-backed) query history instead of session-only

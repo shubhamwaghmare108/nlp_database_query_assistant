@@ -17,7 +17,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from config import settings
+from config import DatabaseSettings, settings
 from database.connection import get_engine
 from utils.helpers import timer
 from utils.logging_config import get_logger
@@ -38,7 +38,9 @@ class QueryExecutionResult:
 
 
 def execute_select_query(
-    sql: str, max_rows: Optional[int] = None
+    sql: str,
+    max_rows: Optional[int] = None,
+    profile: Optional[DatabaseSettings] = None,
 ) -> QueryExecutionResult:
     """
     Execute a SELECT (read-only) query and return results as a DataFrame.
@@ -50,7 +52,7 @@ def execute_select_query(
       user-safe message (no credentials/stack traces leaked upward).
     """
     max_rows = max_rows or settings.app.max_result_rows
-    engine = get_engine()
+    engine = get_engine() if profile is None else get_engine(profile)
 
     try:
         with timer() as t:

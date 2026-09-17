@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from config import settings
+from config import DatabaseSettings, settings
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -28,15 +28,15 @@ class DatabaseConnectionError(Exception):
     """Raised when the application cannot establish a database connection."""
 
 
-@lru_cache(maxsize=1)
-def get_engine() -> Engine:
+@lru_cache(maxsize=16)
+def get_engine(profile: DatabaseSettings | None = None) -> Engine:
     """
     Return a process-wide singleton SQLAlchemy Engine with connection
     pooling. Cached so repeated calls (e.g. from Streamlit re-runs)
     reuse the same pool instead of opening new ones.
     """
     try:
-        db_settings = settings.database
+        db_settings = profile or settings.database
         if not getattr(db_settings, "name", "") and db_settings.dialect != "sqlite":
             raise ValueError("Database settings are incomplete: DB_NAME is required.")
         url = db_settings.sqlalchemy_url
@@ -60,10 +60,10 @@ def get_engine() -> Engine:
         raise DatabaseConnectionError(str(exc)) from exc
 
 
-def test_connection() -> bool:
+def test_connection(profile: DatabaseSettings | None = None) -> bool:
     """Ping the database. Returns True if reachable, False otherwise."""
     try:
-        engine = get_engine()
+        engine = get_engine(profile)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         logger.info("Database connection test succeeded")
