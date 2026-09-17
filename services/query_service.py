@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from typing import List, Optional
 
 import pandas as pd
@@ -60,32 +61,64 @@ def _allowed_table_set(schema: DatabaseSchema) -> set[str]:
     return {t.lower() for t in schema.table_names()}
 
 
-def _is_table_count_question(question: str) -> bool:
-    """Return True for simple questions asking how many tables exist."""
-    normalized = " ".join(question.lower().replace("?", "").split())
-    phrases = (
-        "how many tables",
-        "number of tables",
-        "count of tables",
-        "total tables",
-        "how many database tables",
-    )
-    return any(phrase in normalized for phrase in phrases)
+def _schema_metadata_response(question: str, schema: DatabaseSchema) -> Optional[QueryResponse]:
+    """Answer simple table metadata questions directly from the discovered schema."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", question.lower()).strip()
+    table_requested = bool(re.search(r"\b(table|tables|relation|relations)\b", normalized))
 
+    if not table_requested:
+        return None
 
-def _table_count_response(question: str, schema: DatabaseSchema) -> QueryResponse:
-    """Answer schema-level table-count questions without involving the LLM."""
-    table_names = list(schema.table_names())
-    count = len(table_names)
-    dataframe = pd.DataFrame({"table_count": [count]})
-    return QueryResponse(
-        success=True,
-        question=question,
-        sql="-- Answered from discovered database schema: table count",
-        dataframe=dataframe,
-        row_count=1,
-        explanation=f"The connected database contains {count} table(s).",
+    asks_for_names = any(
+        phrase in normalized
+        for phrase in (
+            "name of table",
+            "names of table",
+            "list table",
+            "list of table",
+            "show table",
+            "what table",
+            "which table",
+            "table names",
+            "tables are there",
+        )
     )
+    asks_for_count = any(
+        phrase in normalized
+        for phrase in (
+            "how many",
+            "number of",
+            "count of",
+            "total number",
+            "total tables",
+        )
+    )
+
+    if asks_for_names:
+        names = list(schema.table_names())
+        dataframe = pd.DataFrame({"table_name": names})
+        return QueryResponse(
+            success=True,
+            question=question,
+            sql="-- Answered from discovered database schema: table names",
+            dataframe=dataframe,
+            row_count=len(dataframe),
+            explanation=f"The connected database contains {len(names)} table(s).",
+        )
+
+    if asks_for_count:
+        count = len(schema.table_names())
+        dataframe = pd.DataFrame({"table_count": [count]})
+        return QueryResponse(
+            success=True,
+            question=question,
+            sql="-- Answered from discovered database schema: table count",
+            dataframe=dataframe,
+            row_count=1,
+            explanation=f"The connected database contains {count} table(s).",
+        )
+
+    return None
 
 
 def answer_question(
@@ -122,8 +155,9 @@ def answer_question(
             error_message="Unable to connect to the database. Please check the database configuration.",
         )
 
-    if _is_table_count_question(user_question):
-        return _table_count_response(user_question, schema)
+    metadata_response = _schema_metadata_response(user_question, schema)
+    if metadata_response is not None:
+        return metadata_response
 
     allowed_tables = _allowed_table_set(schema)
 
