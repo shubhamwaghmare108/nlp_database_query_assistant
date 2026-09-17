@@ -29,15 +29,13 @@ def clear_user_session(session_state: Any) -> None:
 
     ``session_state`` is intentionally duck-typed so this helper can be tested
     with a plain dictionary without importing Streamlit.
+
+    The selected sidebar view is intentionally not changed here. Streamlit
+    does not allow changing a widget-backed session-state key after that
+    widget has been instantiated during the current script run.
     """
     for key in SESSION_KEYS_TO_CLEAR:
         try:
             del session_state[key]
         except (KeyError, AttributeError):
             continue
-
-    # A fresh default view is safer than leaving the user on a stale query page.
-    try:
-        session_state["app_view"] = "Database configuration"
-    except TypeError:
-        setattr(session_state, "app_view", "Database configuration")
