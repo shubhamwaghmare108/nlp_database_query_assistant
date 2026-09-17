@@ -6,6 +6,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from streamlit_js_eval import streamlit_js_eval
 
 from auth.session import clear_user_session
 from config import DatabaseSettings, settings
@@ -22,9 +23,6 @@ st.session_state.setdefault("last_response", None)
 st.session_state.setdefault("configured_database_profile", None)
 st.session_state.setdefault("app_view", "Query assistant")
 
-# Apply deferred navigation before the radio widget is instantiated.
-# Streamlit forbids modifying a widget-backed session-state key after
-# that widget has already been created during the current run.
 _pending_view = st.session_state.pop("pending_app_view", None)
 if _pending_view in {"Query assistant", "Database configuration"}:
     st.session_state["app_view"] = _pending_view
@@ -140,10 +138,14 @@ def render_database_configuration() -> None:
     if not (save_clicked or test_clicked):
         return
     required = []
-    if dialect in {"sqlite", "duckdb"} and not name.strip(): required.append("database file path")
-    elif dialect in {"mysql", "mariadb", "postgresql", "mssql", "oracle"} and not name.strip(): required.append("database name")
-    elif dialect == "snowflake" and (not host.strip() or not name.strip()): required.append("account and database")
-    elif dialect == "bigquery" and (not project_id.strip() or not dataset.strip()): required.append("project ID and dataset")
+    if dialect in {"sqlite", "duckdb"} and not name.strip():
+        required.append("database file path")
+    elif dialect in {"mysql", "mariadb", "postgresql", "mssql", "oracle"} and not name.strip():
+        required.append("database name")
+    elif dialect == "snowflake" and (not host.strip() or not name.strip()):
+        required.append("account and database")
+    elif dialect == "bigquery" and (not project_id.strip() or not dataset.strip()):
+        required.append("project ID and dataset")
     if required:
         st.error("Please provide: " + ", ".join(required) + ".")
         return
@@ -157,8 +159,10 @@ def render_database_configuration() -> None:
     )
     if test_clicked:
         with st.spinner("Testing database connection..."):
-            if test_connection(profile): st.success("Connection successful.")
-            else: st.error("Connection failed. Check the selected RDBMS and connection details.")
+            if test_connection(profile):
+                st.success("Connection successful.")
+            else:
+                st.error("Connection failed. Check the selected RDBMS and connection details.")
     if save_clicked:
         st.session_state.configured_database_profile = profile
         st.session_state["pending_app_view"] = "Query assistant"
@@ -171,8 +175,11 @@ def render_sidebar() -> tuple[str, str | None]:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
         if st.button("Logout", key="logout_button", use_container_width=True):
-            clear_user_session(st.session_state); st.cache_data.clear(); st.rerun()
-        if view == "Database configuration": return view, None
+            clear_user_session(st.session_state)
+            st.cache_data.clear()
+            st.rerun()
+        if view == "Database configuration":
+            return view, None
 
         profiles = _database_profiles()
         if not profiles:
@@ -186,17 +193,69 @@ def render_sidebar() -> tuple[str, str | None]:
         st.success(f"● Connected to `{profile.name or profile.dialect}`") if connected else st.error("● Not connected")
         with st.expander("Schema"):
             if connected:
-                try: st.code(_cached_schema_text(profile_name), language="text")
-                except Exception as exc: st.warning(f"Could not load schema: {exc}")
-            else: st.caption("Connect to a database to view its schema.")
+                try:
+                    st.code(_cached_schema_text(profile_name), language="text")
+                except Exception as exc:
+                    st.warning(f"Could not load schema: {exc}")
+            else:
+                st.caption("Connect to a database to view its schema.")
         st.caption(f"LLM provider: **{settings.llm.provider}**")
         st.caption(f"Environment: **{settings.app.env}**")
     return view, profile_name
 
 
+def _browser_dictation() -> str | None:
+    """Capture one spoken question using the browser's Web Speech API."""
+    if not st.button("🎙️ Start dictation", key="start_dictation"):
+        return None
+
+    speech_expression = r"""
+(async () => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    return {error: "Speech recognition is not supported in this browser. Use Chrome or Edge."};
+  }
+  return await new Promise((resolve) => {
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      const text = event.results?.[0]?.[0]?.transcript || "";
+      resolve({text});
+    };
+    recognition.onerror = (event) => resolve({error: event.error || "Speech recognition failed."});
+    recognition.onnomatch = () => resolve({error: "No speech was recognized. Please try again."});
+    try {
+      recognition.start();
+    } catch (error) {
+      resolve({error: String(error)});
+    }
+  });
+})()
+"""
+    result = streamlit_js_eval(js_expressions=speech_expression, key="browser_dictation_eval")
+    if not isinstance(result, dict):
+        return None
+    if result.get("error"):
+        st.warning(result["error"])
+        return None
+    text = str(result.get("text", "")).strip()
+    return text or None
+
+
 def render_query_form() -> str | None:
+    dictated_text = _browser_dictation()
+    if dictated_text:
+        st.session_state["question_input"] = dictated_text
+        st.success("Speech recognized. You can edit the question before submitting.")
+
     with st.form("query_form", clear_on_submit=False):
-        question = st.text_input("Ask a question about your data...", placeholder="e.g. Show the top 5 customers by total sales", key="question_input")
+        question = st.text_input(
+            "Ask a question about your data...",
+            placeholder="e.g. Show the top 5 customers by total sales",
+            key="question_input",
+        )
         submitted = st.form_submit_button("Generate Query", width="stretch")
     return question if submitted else None
 
@@ -204,18 +263,22 @@ def render_query_form() -> str | None:
 def render_response(response) -> None:
     if not response.success:
         st.error(response.error_message)
-        if response.sql: st.code(response.sql, language="sql")
+        if response.sql:
+            st.code(response.sql, language="sql")
         return
     st.code(response.sql, language="sql")
-    if response.dataframe.empty: st.warning("The query returned no results.")
+    if response.dataframe.empty:
+        st.warning("The query returned no results.")
     else:
         st.dataframe(response.dataframe, width="stretch")
         chart_type = st.selectbox("Chart type", ["Auto", "Bar", "Line", "Pie", "Scatter", "Table"])
         chosen = suggest_chart_type(response.dataframe) if chart_type == "Auto" else chart_type.lower()
         if chosen:
             figure = build_chart(response.dataframe, chosen)
-            if figure is not None: st.plotly_chart(figure, width="stretch")
-    if response.explanation: st.write(response.explanation)
+            if figure is not None:
+                st.plotly_chart(figure, width="stretch")
+    if response.explanation:
+        st.write(response.explanation)
 
 
 def main() -> None:
@@ -233,15 +296,33 @@ def main() -> None:
     profile = _database_profiles()[profile_name]
     question = render_query_form()
     if question is not None:
-        if not question.strip(): st.warning("Please enter a question.")
+        if not question.strip():
+            st.warning("Please enter a question.")
         else:
             with st.spinner("Generating and executing your query..."):
-                response = answer_question(user_question=question, conversation_history=st.session_state.conversation, dialect=profile.dialect, database_profile=profile)
+                response = answer_question(
+                    user_question=question,
+                    conversation_history=st.session_state.conversation,
+                    dialect=profile.dialect,
+                    database_profile=profile,
+                )
             st.session_state.last_response = response
             st.session_state.conversation.append(f"User: {question}")
-            if response.success: st.session_state.conversation.append(f"SQL: {response.sql}")
-            st.session_state.history.append(QueryHistoryEntry(timestamp=datetime.now(), question=question, generated_sql=response.sql, status="success" if response.success else "failed", execution_time_seconds=0.0, row_count=response.row_count, error_message=response.error_message))
-    if st.session_state.last_response is not None: render_response(st.session_state.last_response)
+            if response.success:
+                st.session_state.conversation.append(f"SQL: {response.sql}")
+            st.session_state.history.append(
+                QueryHistoryEntry(
+                    timestamp=datetime.now(),
+                    question=question,
+                    generated_sql=response.sql,
+                    status="success" if response.success else "failed",
+                    execution_time_seconds=0.0,
+                    row_count=response.row_count,
+                    error_message=response.error_message,
+                )
+            )
+    if st.session_state.last_response is not None:
+        render_response(st.session_state.last_response)
 
 
 if __name__ == "__main__":
