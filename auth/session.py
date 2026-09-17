@@ -25,16 +25,18 @@ SESSION_KEYS_TO_CLEAR = (
 
 
 def clear_user_session(session_state: Any) -> None:
-    """Remove platform-owned state and mark the session as logged out."""
+    """Remove platform-owned state and hide the logout control."""
     for key in SESSION_KEYS_TO_CLEAR:
         try:
             del session_state[key]
         except (KeyError, AttributeError):
             continue
 
-    # Preserve this flag across the logout-triggered rerun so the Logout
-    # button does not immediately reappear.
+    # These flags are intentionally preserved across the logout-triggered
+    # rerun. Otherwise app.py would restore the default and show Logout again.
     try:
+        session_state["show_logout"] = False
         session_state["logged_out"] = True
     except TypeError:
+        setattr(session_state, "show_logout", False)
         setattr(session_state, "logged_out", True)
