@@ -12,7 +12,6 @@ from functools import lru_cache
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
 
 from config import DatabaseSettings, settings
 from utils.logging_config import get_logger
@@ -37,13 +36,10 @@ def get_engine(profile: DatabaseSettings | None = None) -> Engine:
         }:
             raise ValueError("Database name is required for this RDBMS.")
 
-        engine_kwargs = {
-            "pool_pre_ping": True,
-            "future": True,
-        }
+        engine_kwargs = {"pool_pre_ping": True, "future": True}
 
-        # File databases do not use the same pool configuration as server
-        # databases. Avoid passing pool_size/max_overflow to their dialects.
+        # File/cloud dialects do not use the same pool configuration as
+        # conventional server databases.
         if db_settings.dialect not in {"sqlite", "duckdb", "bigquery"}:
             engine_kwargs.update(pool_recycle=1800, pool_size=5, max_overflow=5)
 
@@ -77,7 +73,5 @@ def test_connection(profile: DatabaseSettings | None = None) -> bool:
 
 
 def dispose_engine() -> None:
-    """Dispose all cached engines, useful on logout and during tests."""
-    for engine in list(get_engine.cache_info() and []):
-        engine.dispose()
+    """Clear cached engines; new connections will be created on demand."""
     get_engine.cache_clear()
