@@ -55,109 +55,6 @@ def _allowed_table_set(schema: DatabaseSchema) -> set[str]:
     return {table.lower() for table in schema.table_names()}
 
 
-def _clean_identifier(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
-
-
-def _find_table(schema: DatabaseSchema, requested_name: str):
-    """Find a table by exact name, case-insensitive name, or singular/plural form."""
-    requested = _clean_identifier(requested_name)
-    for table in schema.tables.values():
-        candidate = _clean_identifier(table.name)
-        if candidate == requested:
-            return table
-        if candidate.rstrip("s") == requested.rstrip("s"):
-            return table
-    return None
-
-
-def _schema_metadata_response(
-    question: str, schema: DatabaseSchema
-) -> Optional[QueryResponse]:
-    """Answer schema/introspection questions directly, without the LLM."""
-    normalized = re.sub(r"[^a-z0-9_]+", " ", question.lower()).strip()
-    if not re.search(r"\b(table|tables|relation|relations|schema|column|columns)\b", normalized):
-        return None
-
-    asks_for_names = any(
-        phrase in normalized
-        for phrase in (
-            "name of table", "names of table", "list table", "list of table",
-            "show table", "what table", "which table", "table names",
-            "tables are there",
-        )
-    )
-    asks_for_count = any(
-        phrase in normalized
-        for phrase in (
-            "how many", "number of", "count of", "total number", "total tables",
-        )
-    )
-
-    if asks_for_names:
-        names = list(schema.table_names())
-        dataframe = pd.DataFrame({"table_name": names})
-        return QueryResponse(
-            success=True,
-            question=question,
-            sql="-- Answered from discovered database schema: table names",
-            dataframe=dataframe,
-            row_count=len(dataframe),
-            explanation=f"The connected database contains {len(names)} table(s).",
-        )
-
-    if asks_for_count:
-        count = len(schema.table_names())
-        return QueryResponse(
-            success=True,
-            question=question,
-            sql="-- Answered from discovered database schema: table count",
-            dataframe=pd.DataFrame({"table_count": [count]}),
-            row_count=1,
-            explanation=f"The connected database contains {count} table(s).",
-        )
-
-    describe_match = re.search(
-        r"(?:describe|explain|structure|schema|columns?\s+of|details?\s+of)\s+(?:the\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:table)?",
-        normalized,
-    )
-    if describe_match:
-        requested_name = describe_match.group(1)
-        table = _find_table(schema, requested_name)
-        if table is None:
-            return QueryResponse(
-                success=False,
-                question=question,
-                error_message=(
-                    f"Table '{requested_name}' was not found in the discovered schema. "
-                    f"Available tables: {', '.join(schema.table_names()) or 'none'}"
-                ),
-            )
-
-        rows = [
-            {
-                "column_name": column.name,
-                "data_type": column.data_type,
-                "is_primary_key": column.is_primary_key,
-                "is_nullable": column.is_nullable,
-            }
-            for column in table.columns
-        ]
-        return QueryResponse(
-            success=True,
-            question=question,
-            sql=f"-- Answered from discovered database schema: describe {table.name}",
-            dataframe=pd.DataFrame(rows),
-            row_count=len(rows),
-            explanation=(
-                f"Table '{table.name}' has {len(rows)} column(s). "
-                "The result includes column names, data types, primary-key status, and nullability."
-            ),
-        )
-
-    return None
-
-
 def answer_question(
     user_question: str,
     conversation_history: Optional[List[str]] = None,
@@ -165,9 +62,14 @@ def answer_question(
     database_profile: Optional[DatabaseSettings] = None,
     generate_explanation: bool = True,
 ) -> QueryResponse:
+    """Generate and execute every user question through the configured LLM pipeline."""
     user_question = (user_question or "").strip()
     if not user_question:
-        return QueryResponse(success=False, question=user_question, error_message="Please enter a question.")
+        return QueryResponse(
+            success=False,
+            question=user_question,
+            error_message="Please enter a question.",
+        )
 
     try:
         schema = (
@@ -180,13 +82,14 @@ def answer_question(
         return QueryResponse(
             success=False,
             question=user_question,
-            error_message="Unable to connect to the database. Please check the database configuration.",
+            error_message=(
+                "Unable to connect to the database. "
+                "Please check the database configuration."
+            ),
         )
 
-    metadata_response = _schema_metadata_response(user_question, schema)
-    if metadata_response is not None:
-        return metadata_response
-
+    # Do not short-circuit schema or EDA questions. They must also be converted
+    # into SQL by Gemini so that the complete NL-to-SQL pipeline is exercised.
     allowed_tables = _allowed_table_set(schema)
 
     try:
@@ -197,28 +100,44 @@ def answer_question(
             conversation_history=conversation_history,
         )
     except SQLGenerationError as exc:
-        return QueryResponse(success=False, question=user_question, error_message=str(exc))
+        return QueryResponse(
+            success=False,
+            question=user_question,
+            error_message=str(exc),
+        )
 
     max_attempts = settings.app.max_sql_correction_attempts
     last_error = ""
     attempt = 0
 
     while attempt <= max_attempts:
-        validation = validate_sql(sql, allowed_tables=allowed_tables, dialect=dialect)
+        validation = validate_sql(
+            sql,
+            allowed_tables=allowed_tables,
+            dialect=dialect,
+        )
 
         if not validation.is_valid:
             last_error = "; ".join(validation.errors)
-            logger.warning("SQL failed validation (attempt %d): %s", attempt, last_error)
+            logger.warning(
+                "SQL failed validation (attempt %d): %s",
+                attempt,
+                last_error,
+            )
         else:
             sanitized_sql = validation.sanitized_sql
             if sanitized_sql is None:
                 last_error = "SQL validation returned no executable query."
                 break
+
             try:
                 exec_result = (
                     execute_select_query(sanitized_sql)
                     if database_profile is None
-                    else execute_select_query(sanitized_sql, profile=database_profile)
+                    else execute_select_query(
+                        sanitized_sql,
+                        profile=database_profile,
+                    )
                 )
                 explanation = None
                 if generate_explanation and not exec_result.dataframe.empty:
@@ -228,6 +147,7 @@ def answer_question(
                         exec_result.dataframe,
                         exec_result.row_count,
                     )
+
                 return QueryResponse(
                     success=True,
                     question=user_question,
@@ -240,7 +160,11 @@ def answer_question(
                 )
             except QueryExecutionError as exc:
                 last_error = str(exc)
-                logger.warning("SQL execution failed (attempt %d): %s", attempt, last_error)
+                logger.warning(
+                    "SQL execution failed (attempt %d): %s",
+                    attempt,
+                    last_error,
+                )
 
         if attempt >= max_attempts:
             break
@@ -270,7 +194,10 @@ def answer_question(
 
 
 def _generate_explanation(
-    question: str, sql: str, df: pd.DataFrame, row_count: int
+    question: str,
+    sql: str,
+    df: pd.DataFrame,
+    row_count: int,
 ) -> Optional[str]:
     """Best-effort explanation generation; never blocks the main result."""
     try:
