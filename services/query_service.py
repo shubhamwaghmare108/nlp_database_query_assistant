@@ -1,13 +1,7 @@
 """
 services/query_service.py
 --------------------------
-The single orchestration point for the full pipeline:
-
-    question -> schema -> LLM -> validate -> execute -> (correct if needed)
-
-app.py (the Streamlit UI) should only ever call into this module, never
-into nlp/database/security modules directly. This keeps the UI thin and
-the pipeline independently testable.
+Single orchestration point for the natural-language database query pipeline.
 """
 
 from __future__ import annotations
@@ -36,7 +30,7 @@ class QueryHistoryEntry:
     timestamp: datetime
     question: str
     generated_sql: Optional[str]
-    status: str  # "success" | "failed"
+    status: str
     execution_time_seconds: float
     row_count: int
     error_message: Optional[str] = None
@@ -57,40 +51,46 @@ class QueryResponse:
 
 def _allowed_table_set(schema: DatabaseSchema) -> set[str]:
     if settings.app.allowed_tables:
-        return {t.lower() for t in settings.app.allowed_tables}
-    return {t.lower() for t in schema.table_names()}
+        return {table.lower() for table in settings.app.allowed_tables}
+    return {table.lower() for table in schema.table_names()}
 
 
-def _schema_metadata_response(question: str, schema: DatabaseSchema) -> Optional[QueryResponse]:
-    """Answer simple table metadata questions directly from the discovered schema."""
-    normalized = re.sub(r"[^a-z0-9]+", " ", question.lower()).strip()
-    table_requested = bool(re.search(r"\b(table|tables|relation|relations)\b", normalized))
+def _clean_identifier(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
 
-    if not table_requested:
+
+def _find_table(schema: DatabaseSchema, requested_name: str):
+    """Find a table by exact name, case-insensitive name, or singular/plural form."""
+    requested = _clean_identifier(requested_name)
+    for table in schema.tables.values():
+        candidate = _clean_identifier(table.name)
+        if candidate == requested:
+            return table
+        if candidate.rstrip("s") == requested.rstrip("s"):
+            return table
+    return None
+
+
+def _schema_metadata_response(
+    question: str, schema: DatabaseSchema
+) -> Optional[QueryResponse]:
+    """Answer schema/introspection questions directly, without the LLM."""
+    normalized = re.sub(r"[^a-z0-9_]+", " ", question.lower()).strip()
+    if not re.search(r"\b(table|tables|relation|relations|schema|column|columns)\b", normalized):
         return None
 
     asks_for_names = any(
         phrase in normalized
         for phrase in (
-            "name of table",
-            "names of table",
-            "list table",
-            "list of table",
-            "show table",
-            "what table",
-            "which table",
-            "table names",
+            "name of table", "names of table", "list table", "list of table",
+            "show table", "what table", "which table", "table names",
             "tables are there",
         )
     )
     asks_for_count = any(
         phrase in normalized
         for phrase in (
-            "how many",
-            "number of",
-            "count of",
-            "total number",
-            "total tables",
+            "how many", "number of", "count of", "total number", "total tables",
         )
     )
 
@@ -108,14 +108,51 @@ def _schema_metadata_response(question: str, schema: DatabaseSchema) -> Optional
 
     if asks_for_count:
         count = len(schema.table_names())
-        dataframe = pd.DataFrame({"table_count": [count]})
         return QueryResponse(
             success=True,
             question=question,
             sql="-- Answered from discovered database schema: table count",
-            dataframe=dataframe,
+            dataframe=pd.DataFrame({"table_count": [count]}),
             row_count=1,
             explanation=f"The connected database contains {count} table(s).",
+        )
+
+    describe_match = re.search(
+        r"(?:describe|explain|structure|schema|columns?\s+of|details?\s+of)\s+(?:the\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:table)?",
+        normalized,
+    )
+    if describe_match:
+        requested_name = describe_match.group(1)
+        table = _find_table(schema, requested_name)
+        if table is None:
+            return QueryResponse(
+                success=False,
+                question=question,
+                error_message=(
+                    f"Table '{requested_name}' was not found in the discovered schema. "
+                    f"Available tables: {', '.join(schema.table_names()) or 'none'}"
+                ),
+            )
+
+        rows = [
+            {
+                "column_name": column.name,
+                "data_type": column.data_type,
+                "is_primary_key": column.is_primary_key,
+                "is_nullable": column.is_nullable,
+            }
+            for column in table.columns
+        ]
+        return QueryResponse(
+            success=True,
+            question=question,
+            sql=f"-- Answered from discovered database schema: describe {table.name}",
+            dataframe=pd.DataFrame(rows),
+            row_count=len(rows),
+            explanation=(
+                f"Table '{table.name}' has {len(rows)} column(s). "
+                "The result includes column names, data types, primary-key status, and nullability."
+            ),
         )
 
     return None
@@ -128,19 +165,9 @@ def answer_question(
     database_profile: Optional[DatabaseSettings] = None,
     generate_explanation: bool = True,
 ) -> QueryResponse:
-    """
-    Run the full text-to-SQL pipeline for a single question, including
-    a bounded SQL-correction loop. Returns a QueryResponse describing
-    the outcome — this function never raises for expected failure modes
-    (LLM errors, invalid SQL, execution errors); it returns a failed
-    QueryResponse instead so the UI can render a friendly message.
-    """
     user_question = (user_question or "").strip()
     if not user_question:
-        return QueryResponse(
-            success=False, question=user_question,
-            error_message="Please enter a question.",
-        )
+        return QueryResponse(success=False, question=user_question, error_message="Please enter a question.")
 
     try:
         schema = (
@@ -151,7 +178,8 @@ def answer_question(
     except Exception as exc:  # noqa: BLE001
         logger.error("Schema retrieval failed: %s", exc)
         return QueryResponse(
-            success=False, question=user_question,
+            success=False,
+            question=user_question,
             error_message="Unable to connect to the database. Please check the database configuration.",
         )
 
@@ -187,16 +215,18 @@ def answer_question(
                 last_error = "SQL validation returned no executable query."
                 break
             try:
-                if database_profile is None:
-                    exec_result = execute_select_query(sanitized_sql)
-                else:
-                    exec_result = execute_select_query(
-                        sanitized_sql, profile=database_profile
-                    )
+                exec_result = (
+                    execute_select_query(sanitized_sql)
+                    if database_profile is None
+                    else execute_select_query(sanitized_sql, profile=database_profile)
+                )
                 explanation = None
                 if generate_explanation and not exec_result.dataframe.empty:
                     explanation = _generate_explanation(
-                        user_question, sanitized_sql, exec_result.dataframe, exec_result.row_count
+                        user_question,
+                        sanitized_sql,
+                        exec_result.dataframe,
+                        exec_result.row_count,
                     )
                 return QueryResponse(
                     success=True,
@@ -226,7 +256,6 @@ def answer_question(
         except SQLGenerationError as exc:
             last_error = str(exc)
             break
-
         attempt += 1
 
     return QueryResponse(
@@ -243,11 +272,14 @@ def answer_question(
 def _generate_explanation(
     question: str, sql: str, df: pd.DataFrame, row_count: int
 ) -> Optional[str]:
-    """Best-effort natural-language explanation; never blocks the main result."""
+    """Best-effort explanation generation; never blocks the main result."""
     try:
         preview = df.head(20).to_csv(index=False)
         system_instruction, prompt = build_explanation_prompt(
-            user_question=question, sql=sql, result_preview_csv=preview, row_count=row_count
+            user_question=question,
+            sql=sql,
+            result_preview_csv=preview,
+            row_count=row_count,
         )
         client = get_llm_client()
         return client.generate(prompt, system_instruction=system_instruction)
