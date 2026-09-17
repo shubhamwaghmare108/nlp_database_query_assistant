@@ -25,17 +25,16 @@ SESSION_KEYS_TO_CLEAR = (
 
 
 def clear_user_session(session_state: Any) -> None:
-    """Remove all platform-owned state from a Streamlit session.
-
-    ``session_state`` is intentionally duck-typed so this helper can be tested
-    with a plain dictionary without importing Streamlit.
-
-    The selected sidebar view is intentionally not changed here. Streamlit
-    does not allow changing a widget-backed session-state key after that
-    widget has been instantiated during the current script run.
-    """
+    """Remove platform-owned state and mark the session as logged out."""
     for key in SESSION_KEYS_TO_CLEAR:
         try:
             del session_state[key]
         except (KeyError, AttributeError):
             continue
+
+    # Preserve this flag across the logout-triggered rerun so the Logout
+    # button does not immediately reappear.
+    try:
+        session_state["logged_out"] = True
+    except TypeError:
+        setattr(session_state, "logged_out", True)
