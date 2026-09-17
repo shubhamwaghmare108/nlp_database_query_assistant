@@ -166,14 +166,20 @@ def render_database_configuration() -> None:
         st.rerun()
 
 
-def render_sidebar() -> tuple[str, str]:
+def render_sidebar() -> tuple[str, str | None]:
     with st.sidebar:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
         if st.button("Logout", key="logout_button", use_container_width=True):
             clear_user_session(st.session_state); st.cache_data.clear(); st.rerun()
-        if view == "Database configuration": return view, ""
+        if view == "Database configuration": return view, None
+
         profiles = _database_profiles()
+        if not profiles:
+            st.info("No connection profiles are configured yet.")
+            st.caption("Open Database configuration to create a session connection.")
+            return view, None
+
         profile_name = st.selectbox("Connection profile", list(profiles), key="database_profile")
         profile = profiles[profile_name]
         connected = test_connection(profile)
@@ -216,7 +222,14 @@ def main() -> None:
     st.title("🗄️ NLP Database Query Assistant")
     st.caption("Ask questions about your data in plain English — no SQL required.")
     view, profile_name = render_sidebar()
-    if view == "Database configuration": render_database_configuration(); return
+    if view == "Database configuration":
+        render_database_configuration()
+        return
+    if profile_name is None:
+        st.warning("No database connection is available. Configure a connection before using the query assistant.")
+        render_database_configuration()
+        return
+
     profile = _database_profiles()[profile_name]
     question = render_query_form()
     if question is not None:
