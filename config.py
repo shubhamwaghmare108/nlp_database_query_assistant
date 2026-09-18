@@ -139,8 +139,9 @@ class DatabaseSettings:
                 f"{quote_plus(self.user)}:{quote_plus(self.password)}@"
                 if (self.user or self.password) else ""
             )
+            url_dialect = "mysql" if d == "mariadb" and driver == "pymysql" else d
             return (
-                f"{d}+{driver}://{auth}{self.host}:{self.port}/"
+                f"{url_dialect}+{driver}://{auth}{self.host}:{self.port}/"
                 f"{quote_plus(self.name)}"
             )
 
