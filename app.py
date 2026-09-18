@@ -222,8 +222,6 @@ def render_sidebar() -> tuple[str, str | None]:
             st.caption("Use Database configuration to create a session connection.")
             return view, None
 
-        if view == "Database configuration":
-            return view, None
 
         profiles = _database_profiles()
         if not profiles:
