@@ -294,15 +294,23 @@ def render_response(response) -> None:
 
 
 def main() -> None:
-    st.title("🗄️ NLP Database Query Assistant")
-    st.caption("Ask questions about your data in plain English — no SQL required.")
     view, profile_name = render_sidebar()
+
+    # Keep navigation views separate. The configuration form should never
+    # be rendered inside the Query Assistant empty state.
     if view == "Database configuration":
         render_database_configuration()
         return
+
+    st.title("🗄️ NLP Database Query Assistant")
+    st.caption("Ask questions about your data in plain English — no SQL required.")
+
     if profile_name is None:
         st.warning("No database connection is available. Configure a connection before using the query assistant.")
-        render_database_configuration()
+        if st.button("Configure database", type="primary", width="stretch"):
+            st.session_state["app_view"] = "Database configuration"
+            st.session_state["pending_app_view"] = "Database configuration"
+            st.rerun()
         return
 
     profile = _database_profiles()[profile_name]
