@@ -317,7 +317,8 @@ def main() -> None:
     if profile_name is None:
         st.warning("No database connection is available. Configure a connection before using the query assistant.")
         if st.button("Configure database", type="primary", width="stretch"):
-            st.session_state["app_view"] = "Database configuration"
+            # app_view is owned by the radio widget. Apply navigation on
+            # the next rerun to avoid Streamlit widget-state errors.
             st.session_state["pending_app_view"] = "Database configuration"
             st.rerun()
         return
