@@ -1,11 +1,10 @@
 """
 Database connection management for the multi-RDBMS query platform.
 
-This module is the single place that creates SQLAlchemy engines. The UI
-can therefore switch between database profiles without changing query
-execution or schema-discovery code.
+This module is the single place that creates SQLAlchemy engines. Provider-
+specific connection arguments are built by connection_options.py so a
+MySQL/PyMySQL option cannot accidentally be passed to another DBAPI.
 """
-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -14,6 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from config import DatabaseSettings, settings
+from database.connection_options import build_connect_args, validate_connection_settings
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -36,26 +36,32 @@ def get_engine(profile: DatabaseSettings | None = None) -> Engine:
         }:
             raise ValueError("Database name is required for this RDBMS.")
 
+        validate_connection_settings(db_settings)
+
         engine_kwargs = {"pool_pre_ping": True, "future": True}
 
-        # File/cloud dialects do not use the same pool configuration as
-        # conventional server databases.
         if db_settings.dialect not in {"sqlite", "duckdb", "bigquery"}:
             engine_kwargs.update(pool_recycle=1800, pool_size=5, max_overflow=5)
 
-        if db_settings.dialect == "sqlite":
-            engine_kwargs["connect_args"] = {"check_same_thread": False}
+        connect_args = build_connect_args(db_settings)
+        if connect_args:
+            engine_kwargs["connect_args"] = connect_args
 
         engine = create_engine(db_settings.sqlalchemy_url, **engine_kwargs)
         logger.info(
-            "Database engine created: dialect=%s host=%s database=%s",
+            "Database engine created: dialect=%s driver=%s host=%s database=%s",
             db_settings.dialect,
+            db_settings.driver,
             db_settings.host,
             db_settings.name,
         )
         return engine
     except Exception as exc:
-        logger.exception("Failed to create database engine for dialect=%s", db_settings.dialect)
+        logger.exception(
+            "Failed to create database engine for dialect=%s driver=%s",
+            db_settings.dialect,
+            db_settings.driver,
+        )
         raise DatabaseConnectionError(str(exc)) from exc
 
 
