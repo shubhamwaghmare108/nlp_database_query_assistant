@@ -1,3 +1,6 @@
+        # Saving a new connection starts an active session again.
+        st.session_state["logged_out"] = False
+        st.session_state["show_logout"] = True
 """Streamlit UI for the NLP Database Query Assistant."""
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ st.session_state.setdefault("last_response", None)
 st.session_state.setdefault("configured_database_profile", None)
 st.session_state.setdefault("app_view", "Query assistant")
 st.session_state.setdefault("show_logout", True)
+st.session_state.setdefault("logged_out", False)
 
 _pending_view = st.session_state.pop("pending_app_view", None)
 if _pending_view in {"Query assistant", "Database configuration"}:
@@ -200,8 +204,8 @@ def render_sidebar() -> tuple[str, str | None]:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
 
-        if st.session_state.get("show_logout", True):
-            if st.button("Logout", key="logout_button", use_container_width=True):
+        # Hide Logout only after logout; a new saved connection reactivates it.
+        if not st.session_state.get("logged_out", False) and st.session_state.get("show_logout", True):
                 clear_user_session(st.session_state)
                 st.session_state["show_logout"] = False
                 st.cache_data.clear()
