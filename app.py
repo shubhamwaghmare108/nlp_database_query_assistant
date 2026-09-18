@@ -72,6 +72,9 @@ def render_database_configuration() -> None:
         warehouse = schema = role = project_id = dataset = credentials_file = ""
         read_only = False
         oracle_identifier = "service_name"
+        odbc_driver = "ODBC Driver 18 for SQL Server"
+        encrypt = ""
+        trust_server_certificate = ""
 
         if dialect in {"sqlite", "duckdb"}:
             name = st.text_input("Database file path", value=_value(current, "name"), placeholder="data/app.db")
@@ -104,10 +107,29 @@ def render_database_configuration() -> None:
             port = st.number_input("Port", 0, 65535, int(_value(current, "port", 1433)))
             name = st.text_input("Database", value=_value(current, "name"))
             auth_modes = ["sql", "windows"]
-            authentication = st.selectbox("Authentication mode", auth_modes, index=auth_modes.index(_value(current, "authentication", "sql")))
+            authentication = st.selectbox(
+                "Authentication mode",
+                auth_modes,
+                index=auth_modes.index(_value(current, "authentication", "sql")),
+            )
             if authentication == "sql":
                 user = st.text_input("Username", value=_value(current, "user"))
                 password = st.text_input("Password", value=_value(current, "password"), type="password")
+            with st.expander("ODBC / encryption options"):
+                odbc_driver = st.text_input(
+                    "ODBC driver",
+                    value=_value(current, "odbc_driver", "ODBC Driver 18 for SQL Server"),
+                )
+                encrypt = st.selectbox(
+                    "Encrypt",
+                    ["", "yes", "no"],
+                    index=["", "yes", "no"].index(_value(current, "encrypt", "")),
+                )
+                trust_server_certificate = st.selectbox(
+                    "Trust server certificate",
+                    ["", "yes", "no"],
+                    index=["", "yes", "no"].index(_value(current, "trust_server_certificate", "")),
+                )
         elif dialect == "oracle":
             host = st.text_input("Host", value=_value(current, "host", "localhost"))
             port = st.number_input("Port", 0, 65535, int(_value(current, "port", 1521)))
@@ -157,6 +179,8 @@ def render_database_configuration() -> None:
         authentication=authentication, warehouse=warehouse, schema=schema, role=role,
         project_id=project_id, dataset=dataset, credentials_file=credentials_file,
         read_only=read_only, oracle_identifier=oracle_identifier,
+        odbc_driver=odbc_driver, encrypt=encrypt,
+        trust_server_certificate=trust_server_certificate,
     )
     if test_clicked:
         with st.spinner("Testing database connection..."):
