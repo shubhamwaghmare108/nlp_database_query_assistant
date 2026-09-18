@@ -204,11 +204,10 @@ def render_sidebar() -> tuple[str, str | None]:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
 
-        if not st.session_state.get("logged_out", False) and st.session_state.get("show_logout", True):
         # Hide Logout only after logout; a new saved connection reactivates it.
+        if not st.session_state.get("logged_out", False) and st.session_state.get("show_logout", True):
             if st.button("Logout", key="logout_button", use_container_width=True):
                 clear_user_session(st.session_state)
-                st.session_state["show_logout"] = False
                 st.cache_data.clear()
                 st.rerun()
 
