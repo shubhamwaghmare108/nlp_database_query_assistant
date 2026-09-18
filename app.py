@@ -203,9 +203,12 @@ def render_sidebar() -> tuple[str, str | None]:
     with st.sidebar:
         st.header("NLP Query Assistant")
         view = st.radio("View", ["Query assistant", "Database configuration"], key="app_view")
+        profiles = _database_profiles()
+        active_session = st.session_state.get("configured_database_profile") is not None
 
-        # Hide Logout only after logout; a new saved connection reactivates it.
-        if not st.session_state.get("logged_out", False) and st.session_state.get("show_logout", True):
+        # Logout is shown only after the user creates a session-specific
+        # database configuration. It remains available on either view.
+        if active_session and not st.session_state.get("logged_out", False):
             if st.button("Logout", key="logout_button", use_container_width=True):
                 clear_user_session(st.session_state)
                 st.cache_data.clear()
@@ -213,6 +216,12 @@ def render_sidebar() -> tuple[str, str | None]:
 
         if view == "Database configuration":
             return view, None
+
+        if not profiles:
+            st.info("No connection profiles are configured yet.")
+            st.caption("Use Database configuration to create a session connection.")
+            return view, None
+
 
         profiles = _database_profiles()
         if not profiles:
