@@ -164,9 +164,21 @@ class DatabaseSettings:
                 if self.authentication in {"windows", "trusted", "integrated"}
                 else f"{quote_plus(self.user)}:{quote_plus(self.password)}@"
             )
+            params = [("driver", self.odbc_driver)]
+            if self.encrypt:
+                params.append(("Encrypt", self.encrypt))
+            if self.trust_server_certificate:
+                params.append(
+                    ("TrustServerCertificate", self.trust_server_certificate)
+                )
+            if self.authentication in {"windows", "trusted", "integrated"}:
+                params.append(("trusted_connection", "yes"))
+            query = "&".join(
+                f"{quote_plus(key)}={quote_plus(value)}" for key, value in params
+            )
             return (
                 f"mssql+{driver}://{auth}{self.host}:{self.port}/"
-                f"{quote_plus(self.name)}"
+                f"{quote_plus(self.name)}?{query}"
             )
 
         if d == "oracle":
