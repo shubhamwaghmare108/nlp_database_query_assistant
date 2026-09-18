@@ -196,10 +196,17 @@ class DatabaseSettings:
             return (
                 f"bigquery://{quote_plus(project)}"
                 + (f"/{quote_plus(self.dataset)}" if self.dataset else "")
+                + (
+                    f"?credentials_path={quote_plus(self.credentials_file)}"
+                    if self.credentials_file else ""
+                )
             )
 
         if d == "duckdb":
-            return f"duckdb:///{Path(self.name or ':memory:').expanduser()}"
+            return (
+                f"duckdb:///{Path(self.name or ':memory:').expanduser()}"
+                + ("?read_only=true" if self.read_only else "")
+            )
 
         if d == "sqlite":
             if self.name in {"", ":memory:"}:
