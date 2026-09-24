@@ -24,6 +24,7 @@ st.session_state.setdefault("configured_database_profile", None)
 st.session_state.setdefault("app_view", "Query assistant")
 st.session_state.setdefault("show_logout", True)
 st.session_state.setdefault("logged_out", False)
+st.session_state.setdefault("connection_status", {})
 
 _pending_view = st.session_state.pop("pending_app_view", None)
 if _pending_view in {"Query assistant", "Database configuration"}:
