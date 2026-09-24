@@ -86,7 +86,11 @@ def test_mssql_uses_odbc_specific_arguments_only():
         trust_server_certificate="no",
     )
     args = build_connect_args(profile)
-    assert args == {}
+    assert args == {
+        "Encrypt": "yes",
+        "TrustServerCertificate": "no",
+        "Trusted_Connection": "yes",
+    }
     assert "driver=ODBC+Driver+18+for+SQL+Server" in profile.sqlalchemy_url
     assert "Encrypt=yes" in profile.sqlalchemy_url
     assert "TrustServerCertificate=no" in profile.sqlalchemy_url
