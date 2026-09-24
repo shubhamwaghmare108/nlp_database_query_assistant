@@ -77,6 +77,34 @@ def test_multiple_cte_aliases_are_not_treated_as_tables():
     assert result.is_valid
 
 
+def test_schema_qualified_table_is_allowed():
+    result = validate_sql(
+        "SELECT * FROM analytics.customers",
+        allowed_tables={"analytics.customers"},
+        dialect="postgresql",
+    )
+    assert result.is_valid
+
+
+def test_catalog_qualified_table_is_allowed():
+    result = validate_sql(
+        "SELECT * FROM project.analytics.customers",
+        allowed_tables={"project.analytics.customers"},
+        dialect="bigquery",
+    )
+    assert result.is_valid
+
+
+def test_qualified_unknown_table_is_rejected():
+    result = validate_sql(
+        "SELECT * FROM analytics.secret_table",
+        allowed_tables={"analytics.customers"},
+        dialect="postgresql",
+    )
+    assert not result.is_valid
+    assert "analytics.secret_table" in result.errors[0]
+
+
 def test_insert_is_rejected():
     result = validate_sql("INSERT INTO customers (customer_name) VALUES ('x')")
     assert not result.is_valid
