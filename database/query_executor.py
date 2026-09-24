@@ -25,6 +25,24 @@ from utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def _apply_query_timeout(conn) -> None:
+    """Apply the configured statement timeout when the backend supports it."""
+    timeout = settings.app.query_timeout_seconds
+    if timeout <= 0:
+        return
+
+    dialect = conn.dialect.name
+    try:
+        if dialect == "mysql":
+            conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout * 1000)}"))
+        elif dialect == "postgresql":
+            conn.execute(text(f"SET LOCAL statement_timeout = {int(timeout * 1000)}"))
+    except SQLAlchemyError:
+        # Timeout support is backend-specific. Query execution remains
+        # functional on databases that do not expose these session settings.
+        logger.debug("Database-specific query timeout is not available for %s", dialect)
+
+
 class QueryExecutionError(Exception):
     """Raised when a query fails to execute against the database."""
 
