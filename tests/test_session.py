@@ -15,7 +15,7 @@ def test_clear_user_session_removes_platform_state():
 
     clear_user_session(state)
 
-    assert state["app_view"] == "Database configuration"
+    assert state["app_view"] == "Query assistant"
     assert state["unrelated"] == "keep"
     assert all(
         key not in state
