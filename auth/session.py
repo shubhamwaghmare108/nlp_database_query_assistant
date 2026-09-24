@@ -23,6 +23,8 @@ SESSION_KEYS_TO_CLEAR = (
     "user",
     "dictation_audio",
     "transcribed_audio_signature",
+    "connection_status",
+    "pending_app_view",
 )
 
 
