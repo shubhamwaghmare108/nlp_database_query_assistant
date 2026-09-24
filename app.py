@@ -195,6 +195,7 @@ def render_database_configuration() -> None:
         st.session_state["logged_out"] = False
         st.session_state["show_logout"] = True
         st.session_state.configured_database_profile = profile
+        st.session_state.setdefault("connection_status", {})["Session configuration"] = True
         st.session_state["pending_app_view"] = "Query assistant"
         st.success("Database configuration saved for this session.")
         st.rerun()
@@ -232,7 +233,11 @@ def render_sidebar() -> tuple[str, str | None]:
 
         profile_name = st.selectbox("Connection profile", list(profiles), key="database_profile")
         profile = profiles[profile_name]
-        connected = test_connection(profile)
+        status_cache = st.session_state.setdefault("connection_status", {})
+        cache_key = profile_name
+        if cache_key not in status_cache:
+            status_cache[cache_key] = test_connection(profile)
+        connected = status_cache[cache_key]
         if connected:
             st.success(f"● Connected to `{profile.name or profile.dialect}`")
         else:
