@@ -76,6 +76,14 @@ def test_unknown_table_rejected():
     assert not result.is_valid
 
 
+def test_allowed_metadata_table_with_dialect_is_supported():
+    result = validate_sql(
+        "SELECT * FROM information_schema.tables",
+        dialect="mysql",
+    )
+    assert result.is_valid
+
+
 def test_system_table_rejected():
     result = validate_sql("SELECT * FROM information_schema.tables")
     assert not result.is_valid
