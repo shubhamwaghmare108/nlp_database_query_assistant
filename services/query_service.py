@@ -47,6 +47,7 @@ class QueryResponse:
     warnings: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
     explanation: Optional[str] = None
+    execution_time_seconds: float = 0.0
 
 
 def _allowed_table_set(schema: DatabaseSchema) -> set[str]:
@@ -169,6 +170,7 @@ def answer_question(
                     truncated=exec_result.truncated,
                     warnings=validation.warnings,
                     explanation=explanation,
+                    execution_time_seconds=exec_result.execution_time_seconds,
                 )
             except QueryExecutionError as exc:
                 last_error = str(exc)
