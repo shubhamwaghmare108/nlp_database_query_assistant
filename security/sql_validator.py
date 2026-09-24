@@ -517,18 +517,20 @@ def validate_sql(
     # Automatic LIMIT handling
     # -------------------------------------------------------------
 
-    sanitized = parsed
+    if default_limit < 1:
+        return ValidationResult(
+            is_valid=False,
+            errors=["default_limit must be greater than zero."],
+        )
 
+    sanitized = parsed
     has_limit = parsed.find(exp.Limit) is not None
     is_aggregate_only = _is_aggregate_only_query(parsed)
 
-    if (
-        not has_limit
-        and isinstance(parsed, exp.Select)
-        and not is_aggregate_only
-    ):
+    # Apply the safety limit to top-level SELECT and UNION results.
+    limitable = isinstance(parsed, (exp.Select, exp.Union))
+    if not has_limit and limitable and not is_aggregate_only:
         sanitized = parsed.limit(default_limit)
-
         warnings.append(
             "No LIMIT clause found — automatically limited to "
             f"{default_limit} rows."
