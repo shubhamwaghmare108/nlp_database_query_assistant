@@ -502,6 +502,15 @@ def validate_sql(
 
     # -------------------------------------------------------------
     # System-table validation
+
+    # BigQuery can normalize an invalid foreign multi-part qualification
+    # such as project.dataset.pg_catalog.table down to the physical table
+    # name. Reject explicit pg_* schema components as defense in depth.
+    if re.search(r"(?<![A-Za-z0-9_])pg_[A-Za-z0-9_]*\\s*\\.", sql, re.IGNORECASE):
+        return ValidationResult(
+            is_valid=False,
+            errors=["Access to PostgreSQL system schemas is not allowed."],
+        )
     # -------------------------------------------------------------
 
     for table in qualified_tables:
