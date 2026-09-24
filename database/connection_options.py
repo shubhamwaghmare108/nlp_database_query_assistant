@@ -106,6 +106,20 @@ def validate_connection_settings(settings: DatabaseSettings) -> None:
             f"Unsupported PostgreSQL driver '{driver}'. Use DB_DRIVER=psycopg2."
         )
 
+    expected_drivers = {
+        "oracle": "oracledb",
+        "snowflake": "snowflake",
+        "bigquery": "bigquery",
+        "googlebigquery": "bigquery",
+        "duckdb": "duckdb_engine",
+        "sqlite": "pysqlite",
+    }
+    if d in expected_drivers and driver != expected_drivers[d]:
+        raise ValueError(
+            f"Unsupported {d} driver '{driver}'. "
+            f"Use DB_DRIVER={expected_drivers[d]}."
+        )
+
     if d in {"mssql", "sqlserver"} and driver != "pyodbc":
         raise ValueError(
             f"Unsupported SQL Server driver '{driver}'. Use DB_DRIVER=pyodbc."
