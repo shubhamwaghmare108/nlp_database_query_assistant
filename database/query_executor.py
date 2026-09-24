@@ -57,6 +57,10 @@ def execute_select_query(
     try:
         with timer() as t:
             with engine.connect() as conn:
+                # Apply the configured database-side statement timeout where
+                # the backend exposes it through a SQL command. Unsupported
+                # backends simply rely on the connection/pool timeout.
+                _apply_query_timeout(conn)
                 # execution_options(stream_results=True) lets us cap
                 # memory use on very large result sets.
                 result_proxy = conn.execution_options(
