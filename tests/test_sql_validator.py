@@ -45,6 +45,38 @@ def test_mixed_aggregate_query_is_limited():
     assert "LIMIT 500" in result.sanitized_sql.upper()
 
 
+def test_cte_alias_is_not_treated_as_unknown_table():
+    result = validate_sql(
+        """
+        WITH recent_orders AS (
+            SELECT * FROM orders
+        )
+        SELECT * FROM recent_orders
+        """,
+        allowed_tables=ALLOWED_TABLES,
+    )
+    assert result.is_valid
+    assert "LIMIT 500" in result.sanitized_sql.upper()
+
+
+def test_multiple_cte_aliases_are_not_treated_as_tables():
+    result = validate_sql(
+        """
+        WITH recent_orders AS (
+            SELECT * FROM orders
+        ),
+        customer_orders AS (
+            SELECT c.customer_id
+            FROM customers c
+            JOIN recent_orders r ON c.customer_id = r.customer_id
+        )
+        SELECT * FROM customer_orders
+        """,
+        allowed_tables=ALLOWED_TABLES,
+    )
+    assert result.is_valid
+
+
 def test_insert_is_rejected():
     result = validate_sql("INSERT INTO customers (customer_name) VALUES ('x')")
     assert not result.is_valid
