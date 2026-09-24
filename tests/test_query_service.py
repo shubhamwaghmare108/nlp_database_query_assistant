@@ -75,7 +75,13 @@ def test_execution_failure_triggers_correction_then_fails(monkeypatch):
 def test_invalid_sql_is_rejected_before_execution(monkeypatch):
     monkeypatch.setattr(query_service, "get_database_schema", lambda: _sample_schema())
     monkeypatch.setattr(query_service, "generate_sql", lambda **kwargs: "DROP TABLE customers")
-    monkeypatch.setattr(query_service, "correct_sql", lambda **kwargs: "DROP TABLE customers")
+    correction_called = {"called": False}
+
+    def should_not_correct(**kwargs):
+        correction_called["called"] = True
+        raise AssertionError("correct_sql must not run after security validation failure")
+
+    monkeypatch.setattr(query_service, "correct_sql", should_not_correct)
 
     called = {"executed": False}
 
@@ -88,3 +94,4 @@ def test_invalid_sql_is_rejected_before_execution(monkeypatch):
     response = query_service.answer_question("Delete everything", generate_explanation=False)
     assert not response.success
     assert called["executed"] is False
+    assert correction_called["called"] is False
