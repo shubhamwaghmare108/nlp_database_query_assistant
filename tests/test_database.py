@@ -57,3 +57,16 @@ def test_row_limit_enforced(sqlite_engine):
     result = query_executor.execute_select_query("SELECT * FROM customers", max_rows=1)
     assert result.row_count == 1
     assert result.truncated is True
+
+
+def test_configured_query_timeout_is_applied(monkeypatch, sqlite_engine):
+    calls = []
+    original = query_executor._apply_query_timeout
+
+    def fake_timeout(conn):
+        calls.append(conn.dialect.name)
+
+    monkeypatch.setattr(query_executor, "_apply_query_timeout", fake_timeout)
+    query_executor.execute_select_query("SELECT * FROM customers")
+    assert calls == ["sqlite"]
+    monkeypatch.setattr(query_executor, "_apply_query_timeout", original)
