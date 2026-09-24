@@ -84,8 +84,8 @@ def test_allowed_metadata_table_with_dialect_is_supported():
     assert result.is_valid
 
 
-def test_system_table_rejected():
-    result = validate_sql("SELECT * FROM information_schema.tables")
+def test_unapproved_system_table_rejected():
+    result = validate_sql("SELECT * FROM performance_schema.events_statements")
     assert not result.is_valid
 
 
