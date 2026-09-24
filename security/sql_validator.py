@@ -128,6 +128,14 @@ _ALLOWED_METADATA_TABLES = {
         "information_schema.tables",
         "information_schema.columns",
     },
+    "bigquery": {
+        "information_schema.tables",
+        "information_schema.columns",
+    },
+    "googlebigquery": {
+        "information_schema.tables",
+        "information_schema.columns",
+    },
 }
 
 _DEFAULT_LIMIT = 500
@@ -263,16 +271,37 @@ def _is_allowed_metadata_reference(
     table_name: str,
     qualified_tables: Set[str],
     allowed_metadata_tables: Set[str],
+    dialect: str = "mysql",
 ) -> bool:
     """
     Determine whether an extracted table name belongs to an approved
     metadata table.
 
-    This prevents an ordinary application table named 'tables' or
-    'columns' from being automatically trusted.
+    BigQuery INFORMATION_SCHEMA views are commonly qualified with a
+    project and region/dataset, for example:
+        project.region-us.INFORMATION_SCHEMA.TABLES
+        project.analytics.INFORMATION_SCHEMA.COLUMNS
+
+    Those fully-qualified forms are approved only when their final two
+    components are INFORMATION_SCHEMA.TABLES or COLUMNS.
     """
     if table_name in allowed_metadata_tables:
         return True
+
+    normalized_dialect = _normalize_dialect(dialect)
+
+    if normalized_dialect in {"bigquery", "googlebigquery"}:
+        metadata_aliases = {
+            "tables",
+            "columns",
+        }
+        if table_name in metadata_aliases:
+            return any(
+                parts[-2:] == ["information_schema", table_name]
+                for qualified_table in qualified_tables
+                for parts in [qualified_table.lower().split(".")]
+                if len(parts) >= 2
+            )
 
     metadata_aliases = {
         metadata_table.rsplit(".", 1)[-1]
@@ -483,7 +512,16 @@ def validate_sql(
             for prefix in _SYSTEM_TABLE_PREFIXES
         )
 
-        if is_system_table and normalized_table not in allowed_metadata_tables:
+        if (
+            is_system_table
+            and normalized_table not in allowed_metadata_tables
+            and not _is_allowed_metadata_reference(
+                table_name=normalized_table.rsplit(".", 1)[-1],
+                qualified_tables=qualified_tables,
+                allowed_metadata_tables=allowed_metadata_tables,
+                dialect=dialect,
+            )
+        ):
             return ValidationResult(
                 is_valid=False,
                 errors=[
@@ -553,6 +591,7 @@ def validate_sql(
                 table_name=table_name,
                 qualified_tables=qualified_tables,
                 allowed_metadata_tables=allowed_metadata_tables,
+                dialect=dialect,
             ):
                 continue
 
