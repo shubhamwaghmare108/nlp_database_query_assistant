@@ -21,6 +21,8 @@ SESSION_KEYS_TO_CLEAR = (
     "logged_in",
     "authenticated",
     "user",
+    "dictation_audio",
+    "transcribed_audio_signature",
 )
 
 
