@@ -192,19 +192,27 @@ def _allowed_metadata_tables(dialect: str) -> Set[str]:
 # SQL inspection helpers
 # ---------------------------------------------------------------------
 
+def _extract_cte_names(parsed: exp.Expression) -> Set[str]:
+    """Return CTE aliases so they are not mistaken for physical tables."""
+    return {
+        cte.alias_or_name.lower()
+        for cte in parsed.find_all(exp.CTE)
+        if cte.alias_or_name
+    }
+
+
 def _extract_table_names(parsed: exp.Expression) -> Set[str]:
     """
-    Extract unqualified table names.
+    Extract unqualified physical table names.
 
-    Example:
-        information_schema.tables
-    becomes:
-        tables
+    CTE aliases are excluded because they are query-local names, not
+    database tables that need to appear in the connected schema.
     """
+    cte_names = _extract_cte_names(parsed)
     return {
         table.name.lower()
         for table in parsed.find_all(exp.Table)
-        if table.name
+        if table.name and table.name.lower() not in cte_names
     }
 
 
