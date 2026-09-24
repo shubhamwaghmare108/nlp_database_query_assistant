@@ -36,6 +36,15 @@ def test_aggregate_only_query_not_force_limited():
     assert result.is_valid
 
 
+def test_mixed_aggregate_query_is_limited():
+    result = validate_sql(
+        "SELECT customer_id, COUNT(*) FROM customers GROUP BY customer_id",
+        allowed_tables=ALLOWED_TABLES,
+    )
+    assert result.is_valid
+    assert "LIMIT 500" in result.sanitized_sql.upper()
+
+
 def test_insert_is_rejected():
     result = validate_sql("INSERT INTO customers (customer_name) VALUES ('x')")
     assert not result.is_valid
