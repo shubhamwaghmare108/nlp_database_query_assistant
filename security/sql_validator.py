@@ -507,11 +507,22 @@ def validate_sql(
     for table in qualified_tables:
         normalized_table = table.lower()
         components = normalized_table.split(".")
-        is_system_table = any(
-            normalized_table == prefix.rstrip(".")
-            or normalized_table.startswith(prefix)
-            or prefix.rstrip(".") in components
-            for prefix in _SYSTEM_TABLE_PREFIXES
+        is_system_table = (
+            normalized_table in {
+                prefix.rstrip(".")
+                for prefix in _SYSTEM_TABLE_PREFIXES
+            }
+            or any(
+                normalized_table.startswith(prefix)
+                for prefix in _SYSTEM_TABLE_PREFIXES
+            )
+            or any(
+                component == "information_schema"
+                or component == "performance_schema"
+                or component in {"mysql", "sys"}
+                or component.startswith("pg_")
+                for component in components
+            )
         )
 
         if (
