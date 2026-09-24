@@ -33,6 +33,19 @@ def test_supported_database_urls():
         "duckdb:///data.duckdb"
     )
 
+    snowflake = DatabaseSettings(
+        dialect="snowflake",
+        host="account.example",
+        name="sales",
+        user="reader",
+        password="secret",
+        schema="analytics",
+        warehouse="compute_wh",
+        role="analyst",
+    )
+    assert "warehouse=compute_wh" in snowflake.sqlalchemy_url
+    assert "role=analyst" in snowflake.sqlalchemy_url
+
 
 def test_named_database_profiles_are_loaded_from_environment(monkeypatch):
     monkeypatch.setenv("DB_PROFILES", "warehouse")
@@ -46,3 +59,30 @@ def test_named_database_profiles_are_loaded_from_environment(monkeypatch):
     assert set(profiles) == {"Default", "warehouse"}
     assert profiles["warehouse"].dialect == "postgresql"
     assert profiles["warehouse"].port == 5432
+
+def test_default_profile_is_always_available(monkeypatch):
+    monkeypatch.delenv("DB_PROFILES", raising=False)
+    profiles = Settings().database_profiles
+    assert set(profiles) == {"Default"}
+
+
+def test_database_profile_driver_validation():
+    from database.connection_options import validate_connection_settings
+
+    supported = {
+        "oracle": "oracledb",
+        "snowflake": "snowflake",
+        "bigquery": "bigquery",
+        "duckdb": "duckdb_engine",
+        "sqlite": "pysqlite",
+    }
+    for dialect, driver in supported.items():
+        validate_connection_settings(DatabaseSettings(dialect=dialect, driver=driver))
+
+    for dialect, driver in supported.items():
+        try:
+            validate_connection_settings(DatabaseSettings(dialect=dialect, driver="wrong"))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{dialect} should reject driver={driver!r}")
