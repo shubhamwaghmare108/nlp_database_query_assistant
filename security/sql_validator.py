@@ -235,13 +235,16 @@ def _extract_qualified_table_names(
 
         table_name = table.name.lower()
         database = table.args.get("db")
+        catalog = table.args.get("catalog")
 
+        parts = []
+        if catalog and catalog.name:
+            parts.append(catalog.name.lower())
         if database and database.name:
-            qualified_name = f"{database.name}.{table_name}".lower()
-        else:
-            qualified_name = table_name
+            parts.append(database.name.lower())
+        parts.append(table_name)
 
-        names.add(qualified_name)
+        names.add(".".join(parts))
 
     return names
 
@@ -521,18 +524,39 @@ def validate_sql(
 
         unknown_tables: Set[str] = set()
 
-        for table in referenced_tables:
-            if table in normalized_allowed_tables:
+        cte_names = _extract_cte_names(parsed)
+
+        for table_node in parsed.find_all(exp.Table):
+            table_name = table_node.name.lower() if table_node.name else ""
+            if not table_name or table_name in cte_names:
+                continue
+
+            database = table_node.args.get("db")
+            catalog = table_node.args.get("catalog")
+            parts = []
+            if catalog and catalog.name:
+                parts.append(catalog.name.lower())
+            if database and database.name:
+                parts.append(database.name.lower())
+            parts.append(table_name)
+
+            qualified_name = ".".join(parts)
+            allowed = (
+                table_name in normalized_allowed_tables
+                or qualified_name in normalized_allowed_tables
+            )
+
+            if allowed:
                 continue
 
             if _is_allowed_metadata_reference(
-                table_name=table,
+                table_name=table_name,
                 qualified_tables=qualified_tables,
                 allowed_metadata_tables=allowed_metadata_tables,
             ):
                 continue
 
-            unknown_tables.add(table)
+            unknown_tables.add(qualified_name)
 
         if unknown_tables:
             return ValidationResult(
