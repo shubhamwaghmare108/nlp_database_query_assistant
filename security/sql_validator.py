@@ -442,12 +442,14 @@ def validate_sql(
     # -------------------------------------------------------------
 
     for table in qualified_tables:
+        normalized_table = table.lower()
         is_system_table = any(
-            table.startswith(prefix)
+            normalized_table == prefix.rstrip(".")
+            or normalized_table.startswith(prefix)
             for prefix in _SYSTEM_TABLE_PREFIXES
         )
 
-        if is_system_table and table not in allowed_metadata_tables:
+        if is_system_table and normalized_table not in allowed_metadata_tables:
             return ValidationResult(
                 is_valid=False,
                 errors=[
