@@ -197,9 +197,18 @@ class DatabaseSettings:
             path = quote_plus(self.name) + (
                 f"/{quote_plus(self.schema)}" if self.schema else ""
             )
+            params = []
+            if self.warehouse:
+                params.append(("warehouse", self.warehouse))
+            if self.role:
+                params.append(("role", self.role))
+            query = "&".join(
+                f"{quote_plus(key)}={quote_plus(value)}" for key, value in params
+            )
             return (
                 f"snowflake://{quote_plus(self.user)}:{quote_plus(self.password)}"
                 f"@{self.host}/{path}"
+                + (f"?{query}" if query else "")
             )
 
         if d in {"bigquery", "googlebigquery"}:
