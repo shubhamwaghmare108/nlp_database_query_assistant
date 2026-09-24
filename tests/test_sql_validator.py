@@ -100,3 +100,21 @@ def test_existing_limit_preserved_not_duplicated():
     )
     assert result.is_valid
     assert result.sanitized_sql.upper().count("LIMIT") == 1
+
+
+def test_union_query_is_capped():
+    result = validate_sql(
+        "SELECT id FROM customers UNION SELECT id FROM orders",
+        allowed_tables=ALLOWED_TABLES,
+    )
+    assert result.is_valid
+    assert "LIMIT 500" in result.sanitized_sql.upper()
+
+
+def test_invalid_default_limit_is_rejected():
+    result = validate_sql(
+        "SELECT * FROM customers",
+        allowed_tables=ALLOWED_TABLES,
+        default_limit=0,
+    )
+    assert not result.is_valid
