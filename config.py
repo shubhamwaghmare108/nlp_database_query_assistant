@@ -265,11 +265,15 @@ class Settings:
 
     @property
     def database_profiles(self) -> dict[str, DatabaseSettings]:
-        return {
-            name: DatabaseSettings.from_env(f"DB_{name.upper()}_")
-            for name in (x.strip() for x in os.getenv("DB_PROFILES", "").split(","))
-            if name
-        }
+        profiles = {"Default": self.database}
+        profiles.update(
+            {
+                name: DatabaseSettings.from_env(f"DB_{name.upper()}_")
+                for name in (x.strip() for x in os.getenv("DB_PROFILES", "").split(","))
+                if name and name.lower() != "default"
+            }
+        )
+        return profiles
 
     @property
     def all_database_profiles(self) -> dict[str, DatabaseSettings]:
