@@ -158,6 +158,30 @@ def test_unapproved_system_table_rejected():
     assert not result.is_valid
 
 
+def test_bigquery_information_schema_tables_is_allowed():
+    result = validate_sql(
+        "SELECT * FROM project.region-us.INFORMATION_SCHEMA.TABLES",
+        dialect="bigquery",
+    )
+    assert result.is_valid
+
+
+def test_bigquery_information_schema_columns_is_allowed():
+    result = validate_sql(
+        "SELECT * FROM project.analytics.INFORMATION_SCHEMA.COLUMNS",
+        dialect="bigquery",
+    )
+    assert result.is_valid
+
+
+def test_bigquery_unapproved_system_table_is_rejected():
+    result = validate_sql(
+        "SELECT * FROM project.analytics.pg_catalog.secret_table",
+        dialect="bigquery",
+    )
+    assert not result.is_valid
+
+
 def test_empty_sql_rejected():
     result = validate_sql("")
     assert not result.is_valid
