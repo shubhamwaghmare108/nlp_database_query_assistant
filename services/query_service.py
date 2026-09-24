@@ -124,6 +124,18 @@ def answer_question(
                 attempt,
                 last_error,
             )
+            # Never send security-blocked SQL back to the LLM for correction.
+            # A validation failure means the generated statement violated the
+            # execution policy, not that it merely contained a fixable typo.
+            return QueryResponse(
+                success=False,
+                question=user_question,
+                sql=sql,
+                error_message=(
+                    "The generated query was blocked by the SQL security "
+                    f"validator: {last_error}"
+                ),
+            )
         else:
             sanitized_sql = validation.sanitized_sql
             if sanitized_sql is None:
