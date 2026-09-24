@@ -319,6 +319,29 @@ def _is_aggregate_only_query(parsed: exp.Expression) -> bool:
         exp.Min,
     )
 
+    # A query is aggregate-only only when every selected expression is
+    # aggregate-based or a constant.  Merely containing one aggregate
+    # must not disable the row limit for mixed queries such as:
+    # SELECT customer_id, COUNT(*) FROM customers.
+    for expression in parsed.expressions:
+        if isinstance(expression, exp.Alias):
+            expression = expression.this
+
+        if isinstance(expression, exp.Star):
+            return False
+
+        if any(
+            isinstance(node, exp.Column)
+            for node in expression.find_all(exp.Column)
+        ):
+            return False
+
+        if not any(
+            isinstance(node, aggregate_types)
+            for node in expression.find_all(exp.AggFunc)
+        ):
+            continue
+
     return any(
         isinstance(node, aggregate_types)
         for node in parsed.find_all(exp.AggFunc)
