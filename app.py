@@ -169,8 +169,8 @@ def render_database_configuration() -> None:
         required.append("database name")
     elif dialect == "snowflake" and (not host.strip() or not name.strip()):
         required.append("account and database")
-    elif dialect == "bigquery" and (not project_id.strip() or not dataset.strip()):
-        required.append("project ID and dataset")
+    elif dialect == "bigquery" and not project_id.strip():
+        required.append("project ID")
     if required:
         st.error("Please provide: " + ", ".join(required) + ".")
         return
@@ -195,7 +195,8 @@ def render_database_configuration() -> None:
         st.session_state["logged_out"] = False
         st.session_state["show_logout"] = True
         st.session_state.configured_database_profile = profile
-        st.session_state.setdefault("connection_status", {})["Session configuration"] = True
+        st.session_state["connection_status"] = {"Session configuration": True}
+        st.cache_data.clear()
         st.session_state["pending_app_view"] = "Query assistant"
         st.success("Database configuration saved for this session.")
         st.rerun()
@@ -219,13 +220,6 @@ def render_sidebar() -> tuple[str, str | None]:
         if view == "Database configuration":
             return view, None
 
-        if not profiles:
-            st.info("No connection profiles are configured yet.")
-            st.caption("Use Database configuration to create a session connection.")
-            return view, None
-
-
-        profiles = _database_profiles()
         if not profiles:
             st.info("No connection profiles are configured yet.")
             st.caption("Open Database configuration to create a session connection.")
@@ -352,7 +346,7 @@ def main() -> None:
                     question=question,
                     generated_sql=response.sql,
                     status="success" if response.success else "failed",
-                    execution_time_seconds=0.0,
+                    execution_time_seconds=response.execution_time_seconds,
                     row_count=response.row_count,
                     error_message=response.error_message,
                 )
